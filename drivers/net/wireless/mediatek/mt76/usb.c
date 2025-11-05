@@ -246,7 +246,7 @@ mt76u_fill_rx_sg(struct mt76_dev *dev, struct mt76u_buf *buf,
 
 	urb->num_sgs = max_t(int, i, urb->num_sgs);
 	buf->len = urb->num_sgs * sglen,
-	sg_init_marker(urb->sg, urb->num_sgs);
+	mtk_sg_init_marker(urb->sg, urb->num_sgs);
 
 	return i ? : -ENOMEM;
 }
@@ -639,7 +639,7 @@ mt76u_tx_build_sg(struct sk_buff *skb, struct urb *urb)
 	memset(urb->sg, 0, sizeof(*urb->sg) * MT_SG_MAX_SIZE);
 
 	nsgs = min_t(int, MT_SG_MAX_SIZE, nsgs);
-	sg_init_marker(urb->sg, nsgs);
+	mtk_sg_init_marker(urb->sg, nsgs);
 	urb->num_sgs = nsgs;
 
 	return skb_to_sgvec_nomark(skb, urb->sg, 0, skb->len);

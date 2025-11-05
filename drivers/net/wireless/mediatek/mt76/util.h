@@ -99,7 +99,7 @@ static inline void sg_mark_end(struct scatterlist *sg)
  * @nents:	   Number of entries in table
  *
  **/
-static inline void sg_init_marker(struct scatterlist *sgl,
+static inline void mtk_sg_init_marker(struct scatterlist *sgl,
 				  unsigned int nents)
 {
 	sg_mark_end(&sgl[nents - 1]);
