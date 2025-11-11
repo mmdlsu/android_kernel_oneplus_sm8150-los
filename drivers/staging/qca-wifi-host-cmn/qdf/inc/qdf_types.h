@@ -28,8 +28,13 @@
 #define qdf_must_check __qdf_must_check
 
 /* Include Files */
+#include <linux/version.h>
 #include <i_qdf_types.h>
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
+#include <linux/stdarg.h>
+#else
 #include <stdarg.h>
+#endif
 #ifdef TSOSEG_DEBUG
 #include <qdf_atomic.h>
 #endif

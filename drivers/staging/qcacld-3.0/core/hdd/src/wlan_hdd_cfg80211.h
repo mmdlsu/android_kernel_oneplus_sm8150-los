@@ -101,9 +101,15 @@ struct hdd_context;
 #define WLAN_AKM_SUITE_DPP_RSN 0x506f9a02
 #endif
 
+#ifndef WLAN_AKM_SUITE_OWE
 #define WLAN_AKM_SUITE_OWE 0x000FAC12
+#endif
+#ifndef WLAN_AKM_SUITE_EAP_SHA256
 #define WLAN_AKM_SUITE_EAP_SHA256 0x000FAC0B
+#endif
+#ifndef WLAN_AKM_SUITE_EAP_SHA384
 #define WLAN_AKM_SUITE_EAP_SHA384 0x000FAC0C
+#endif
 
 
 #ifndef WLAN_AKM_SUITE_SAE
@@ -139,7 +145,13 @@ hdd_convert_cfgdot11mode_to_80211mode(enum csr_cfgdot11mode mode);
 
 #define HDD_SET_BIT(__param, __val)    ((__param) |= (1 << (__val)))
 
+#ifndef OPLUS_BUG_STABILITY
+//Modify for scan more hidden AP
 #define MAX_SCAN_SSID 10
+#else /* OPLUS_BUG_STABILITY */
+#define MAX_SCAN_SSID 16
+#endif /* OPLUS_BUG_STABILITY */
+
 
 #define IS_CHANNEL_VALID(channel) ((channel >= 0 && channel < 15) \
 			|| (channel >= 36 && channel <= 184))
@@ -371,7 +383,7 @@ int wlan_hdd_send_avoid_freq_event(struct hdd_context *hdd_ctx,
  * Return: 0 on success or failure reason
  */
 int wlan_hdd_send_hang_reason_event(struct hdd_context *hdd_ctx,
-				    uint32_t reason, uint8_t *data,
+				    enum qdf_hang_reason reason, uint8_t *data,
 				    size_t data_len);
 
 int wlan_hdd_send_avoid_freq_for_dnbs(struct hdd_context *hdd_ctx,

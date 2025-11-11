@@ -26,8 +26,13 @@
  */
 
 /* Include Files */
+#include <linux/version.h>
 #include  <qdf_types.h>         /* For QDF_MODULE_ID... */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
+#include  <linux/stdarg.h>      /* For va_list... */
+#else
 #include  <stdarg.h>            /* For va_list... */
+#endif
 #include  <qdf_status.h>
 #include  <qdf_nbuf.h>
 #include  <i_qdf_types.h>

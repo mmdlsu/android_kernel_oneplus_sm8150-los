@@ -28,6 +28,22 @@
 #include <linux/delay.h>
 #include <linux/timer.h>
 #include <linux/jiffies.h>
+#include <linux/kernel.h>
+
+/* Compatibility definitions for missing timer functions */
+#ifndef from_timer
+#define from_timer(var, callback_timer, timer_fieldname) \
+	container_of(callback_timer, typeof(*var), timer_fieldname)
+#endif
+
+/* Compatibility for renamed timer functions in newer kernels */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
+#define del_timer(timer) timer_delete(timer)
+#define del_timer_sync(timer) timer_delete_sync(timer)
+#endif
+#ifndef destroy_timer_on_stack
+#define destroy_timer_on_stack(timer) do { } while (0)
+#endif
 #include "qdf_mc_timer.h"
 #include <qdf_types.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
@@ -146,7 +162,11 @@ static inline void __qdf_timer_free(struct __qdf_timer_t *timer)
 {
 	struct timer_list *os_timer = &timer->os_timer;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
+	timer_delete_sync(os_timer);
+#else
 	del_timer_sync(os_timer);
+#endif
 
 	if (object_is_on_stack(os_timer))
 		destroy_timer_on_stack(os_timer);
@@ -154,7 +174,11 @@ static inline void __qdf_timer_free(struct __qdf_timer_t *timer)
 
 static inline bool __qdf_timer_sync_cancel(struct __qdf_timer_t *timer)
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
+	return timer_delete_sync(&timer->os_timer);
+#else
 	return del_timer_sync(&timer->os_timer);
+#endif
 }
 
 #endif /* _I_QDF_TIMER_H */

@@ -67,7 +67,12 @@
 
 #ifdef TXRX_PRINT_ENABLE
 
-#include <stdarg.h>             /* va_list */
+#include <linux/version.h>
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
+#include <linux/stdarg.h>             /* va_list */
+#else
+#include <stdarg.h>                   /* va_list */
+#endif
 #include <qdf_types.h>          /* qdf_vprint */
 
 #define ol_txrx_alert(params...) \
