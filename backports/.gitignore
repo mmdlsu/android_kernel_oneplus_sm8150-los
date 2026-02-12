@@ -1,5 +1,3 @@
-Kconfig.kernel
-Kconfig.versions
 .kernel_config_md5
 .config
 .config.old

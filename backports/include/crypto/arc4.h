@@ -1,6 +1,11 @@
 /* Automatically created during backport process */
 #ifndef CONFIG_BPAUTO_BUILD_CRYPTO_LIB_ARC4
+#if __has_include_next(<crypto/arc4.h>)
 #include_next <crypto/arc4.h>
+#else
+/* Kernel does not provide crypto/arc4.h, use backport version */
+#include <crypto/backport-arc4.h>
+#endif
 #else
 #undef arc4_setkey
 #define arc4_setkey LINUX_BACKPORT(arc4_setkey)

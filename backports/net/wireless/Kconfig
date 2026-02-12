@@ -20,7 +20,6 @@ config CFG80211
 if CFG80211
 
 config NL80211_TESTMODE
-	depends on !KERNEL_4_18
 	bool "nl80211 testmode command"
 	help
 	  The nl80211 testmode command helps implementing things like

@@ -82,6 +82,5 @@ config BPAUTO_CRYPTO_LIB_ARC4
 config BPAUTO_BUILD_CRYPTO_LIB_ARC4
 	bool
 	default y if BPAUTO_CRYPTO_LIB_ARC4
-	depends on !(CRYPTO_LIB_ARC4=y || CRYPTO_LIB_ARC4=m)
 	#h-file crypto/arc4.h
 	#c-file lib/crypto/arc4.c

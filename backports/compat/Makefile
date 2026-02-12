@@ -21,3 +21,7 @@ compat-$(CONFIG_KERNEL_5_15) += backport-5.15.o
 compat-$(CONFIG_KERNEL_6_4) += backport-6.4.o
 
 compat-$(CONFIG_BPAUTO_BUILD_CRYPTO_LIB_ARC4) += lib-crypto-arc4.o
+# Fallback: always build arc4 if MAC80211 needs it and BPAUTO didn't enable it
+ifndef CONFIG_BPAUTO_BUILD_CRYPTO_LIB_ARC4
+compat-$(CONFIG_MAC80211) += lib-crypto-arc4.o
+endif
