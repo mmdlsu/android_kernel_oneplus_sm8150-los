@@ -222,7 +222,8 @@ QDF_STATUS hdd_set_sap_ht2040_mode(struct hdd_adapter *adapter,
 #endif
 
 int wlan_hdd_cfg80211_stop_ap(struct wiphy *wiphy,
-			      struct net_device *dev);
+			      struct net_device *dev,
+			      unsigned int link_id);
 
 int wlan_hdd_cfg80211_start_ap(struct wiphy *wiphy,
 			       struct net_device *dev,

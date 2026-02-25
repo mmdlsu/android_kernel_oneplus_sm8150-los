@@ -463,7 +463,14 @@ source "drivers/s390/net/Kconfig"
 
 source "drivers/net/usb/Kconfig"
 
-source "drivers/net/wireless/Kconfig"
+# The in-tree drivers/net/wireless/Kconfig is NOT sourced here —
+# all wireless vendor drivers are provided by the backported versions
+# from backports/Kconfig.sources.  Only Qualcomm platform Kconfigs
+# (cnss, cnss2, cnss_utils, cnss_genl) are sourced from in-tree.
+source "drivers/net/wireless/cnss/Kconfig"
+source "drivers/net/wireless/cnss2/Kconfig"
+source "drivers/net/wireless/cnss_utils/Kconfig"
+source "drivers/net/wireless/cnss_genl/Kconfig"
 
 source "drivers/net/wimax/Kconfig"
 

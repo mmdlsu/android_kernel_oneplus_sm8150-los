@@ -34,6 +34,18 @@
 /* Forward declarations */
 struct inject_frame_req;
 
+/*
+ * Injection uses a dedicated descriptor-id range to avoid colliding with
+ * MGMT_TXRX descriptor-pool ids and to identify completions quickly.
+ *
+ * Keep this range in a mid window (not the extreme high 0xFxxx range) since
+ * some firmware variants are stricter about descriptor-id values.
+ */
+#define WMA_INJECTION_DESC_ID_BASE 0x2000
+#define WMA_INJECTION_DESC_ID_MASK 0x0FFF
+#define WMA_IS_INJECTION_DESC_ID(_id) \
+	(((_id) & ~WMA_INJECTION_DESC_ID_MASK) == WMA_INJECTION_DESC_ID_BASE)
+
 /**
  * enum wma_injection_fw_error_type - Firmware error types for injection
  * @WMA_INJECTION_FW_ERROR_NONE: No error
@@ -129,6 +141,17 @@ QDF_STATUS wma_init_injection_queue(tp_wma_handle wma_handle);
  * Return: QDF_STATUS_SUCCESS on success, error code on failure
  */
 QDF_STATUS wma_deinit_injection_queue(tp_wma_handle wma_handle);
+
+/**
+ * wma_injection_pre_stop_cleanup() - Destroy injection helper vdev before
+ *                                     monitor mode stop
+ * @wma_handle: WMA handle
+ *
+ * Must be called while WMI is still alive, BEFORE the driver sends
+ * VDEV_STOP / VDEV_DELETE for the monitor vdev.  Prevents firmware assert
+ * caused by orphaned STA helper vdev during monitor teardown.
+ */
+void wma_injection_pre_stop_cleanup(tp_wma_handle wma_handle);
 
 /**
  * wma_queue_injection_frame() - Queue frame for injection
@@ -312,6 +335,10 @@ static inline QDF_STATUS wma_init_injection_queue(tp_wma_handle wma_handle)
 static inline QDF_STATUS wma_deinit_injection_queue(tp_wma_handle wma_handle)
 {
 	return QDF_STATUS_SUCCESS;
+}
+
+static inline void wma_injection_pre_stop_cleanup(tp_wma_handle wma_handle)
+{
 }
 
 static inline QDF_STATUS wma_queue_injection_frame(tp_wma_handle wma_handle,

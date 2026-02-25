@@ -1,0 +1,37 @@
+config BACKPORT_INTEGRATE
+bool
+def_bool y
+
+config BACKPORT_DIR
+string
+default "backports/"
+
+config VERSION
+string
+default "v6.1.97-1"
+
+config KERNEL_VERSION
+string
+default "v6.1.97"
+
+config KERNEL_NAME
+string
+default "Linux"
+
+menuconfig BACKPORT_LINUX
+bool "Backport Linux v6.1.97 (backports v6.1.97-1)"
+default n
+---help---
+  Enabling this will let give you the opportunity to use features and
+  drivers backported from Linux v6.1.97 on the kernel you are using.
+  This is experimental and you should say no unless you'd like to help
+  test things.
+
+if BACKPORT_LINUX
+
+source "backports/Kconfig.versions"
+source "backports/Kconfig.kernel"
+source "backports/Kconfig.sources"
+source "backports/Kconfig.local"
+
+endif # BACKPORT_LINUX

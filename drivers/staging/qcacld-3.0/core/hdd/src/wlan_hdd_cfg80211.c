@@ -29,6 +29,8 @@
 #include <linux/init.h>
 #include <linux/etherdevice.h>
 #include <linux/wireless.h>
+#include <linux/cred.h>
+#include <linux/uidgid.h>
 #include "osif_sync.h"
 #include <wlan_hdd_includes.h>
 #include <net/arp.h>
@@ -1757,7 +1759,7 @@ static int __is_driver_dfs_capable(struct wiphy *wiphy,
 		wiphy_ext_feature_isset(wiphy,
 					NL80211_EXT_FEATURE_DFS_OFFLOAD);
 #else
-	dfs_capability = !!(wiphy->flags & WIPHY_FLAG_DFS_OFFLOAD);
+	dfs_capability = wiphy_ext_feature_isset(wiphy, NL80211_EXT_FEATURE_DFS_OFFLOAD);
 #endif
 
 	temp_skbuff = cfg80211_vendor_cmd_alloc_reply_skb(wiphy, sizeof(u32) +
@@ -15237,7 +15239,11 @@ static int wlan_hdd_cfg80211_extscan_get_valid_channels(
 	return errno;
 }
 
+#ifdef CONFIG_BACKPORT_INTEGRATE
+struct wiphy_vendor_command hdd_wiphy_vendor_commands[] = {
+#else
 const struct wiphy_vendor_command hdd_wiphy_vendor_commands[] = {
+#endif
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_DFS_CAPABILITY,
@@ -16095,7 +16101,9 @@ static void wlan_hdd_cfg80211_set_dfs_offload_feature(struct wiphy *wiphy)
 #else
 static void wlan_hdd_cfg80211_set_dfs_offload_feature(struct wiphy *wiphy)
 {
+#ifdef WIPHY_FLAG_DFS_OFFLOAD
 	wiphy->flags |= WIPHY_FLAG_DFS_OFFLOAD;
+#endif
 }
 #endif
 
@@ -16441,6 +16449,21 @@ int wlan_hdd_cfg80211_init(struct device *dev,
 	if (cds_get_conparam() != QDF_GLOBAL_FTM_MODE) {
 		wiphy->n_vendor_commands =
 				ARRAY_SIZE(hdd_wiphy_vendor_commands);
+
+#ifdef CONFIG_BACKPORT_INTEGRATE
+		{
+			static bool vendor_commands_patched = false;
+			int i;
+
+			if (!vendor_commands_patched) {
+				for (i = 0; i < ARRAY_SIZE(hdd_wiphy_vendor_commands); i++) {
+					if (!hdd_wiphy_vendor_commands[i].policy)
+						hdd_wiphy_vendor_commands[i].policy = VENDOR_CMD_RAW_DATA;
+				}
+				vendor_commands_patched = true;
+			}
+		}
+#endif
 		wiphy->vendor_commands = hdd_wiphy_vendor_commands;
 
 		wiphy->vendor_events = wlan_hdd_cfg80211_vendor_events;
@@ -17322,6 +17345,32 @@ static int __wlan_hdd_cfg80211_change_iface(struct wiphy *wiphy,
 		  qdf_opmode_str(adapter->device_mode),
 		  qdf_opmode_str(new_mode));
 
+	if (adapter->device_mode == QDF_MONITOR_MODE &&
+	    new_mode == QDF_MONITOR_MODE) {
+		ndev->ieee80211_ptr->iftype = type;
+		hdd_exit();
+		return 0;
+	}
+
+	/*
+	 * Android framework daemons can race monitor mode by forcing station
+	 * iftype transitions right after monitor enable. Reject non-root
+	 * monitor->non-monitor requests while monitor global mode is active.
+	 *
+	 * Return an error instead of success so cfg80211 doesn't WARN on
+	 * iftype mismatch (it expects iftype to match @type when callback
+	 * returns success).
+	 */
+	if ((adapter->device_mode == QDF_MONITOR_MODE ||
+	     hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE) &&
+	    new_mode != QDF_MONITOR_MODE &&
+	    !uid_eq(current_euid(), GLOBAL_ROOT_UID)) {
+		hdd_warn_rl("rejecting monitor->%s iface change from %s",
+			    qdf_opmode_str(new_mode), current->comm);
+		hdd_exit();
+		return -EOPNOTSUPP;
+	}
+
 	errno = hdd_trigger_psoc_idle_restart(hdd_ctx);
 	if (errno) {
 		hdd_err("Failed to restart psoc; errno:%d", errno);
@@ -17962,6 +18011,7 @@ static int __wlan_hdd_cfg80211_add_key(struct wiphy *wiphy,
 
 static int wlan_hdd_cfg80211_add_key(struct wiphy *wiphy,
 				     struct net_device *ndev,
+				     int link_id,
 				     u8 key_index, bool pairwise,
 				     const u8 *mac_addr,
 				     struct key_params *params)
@@ -18082,6 +18132,7 @@ static int __wlan_hdd_cfg80211_get_key(struct wiphy *wiphy,
 
 static int wlan_hdd_cfg80211_get_key(struct wiphy *wiphy,
 				     struct net_device *ndev,
+				     int link_id,
 				     u8 key_index, bool pairwise,
 				     const u8 *mac_addr, void *cookie,
 				     void (*callback)(void *cookie,
@@ -18148,6 +18199,7 @@ static int __wlan_hdd_cfg80211_del_key(struct wiphy *wiphy,
  */
 static int wlan_hdd_cfg80211_del_key(struct wiphy *wiphy,
 					struct net_device *dev,
+					int link_id,
 					u8 key_index,
 					bool pairwise, const u8 *mac_addr)
 {
@@ -18241,6 +18293,7 @@ static int __wlan_hdd_cfg80211_set_default_key(struct wiphy *wiphy,
 
 static int wlan_hdd_cfg80211_set_default_key(struct wiphy *wiphy,
 					     struct net_device *ndev,
+					     int link_id,
 					     u8 key_index,
 					     bool unicast, bool multicast)
 {
@@ -19222,9 +19275,22 @@ static int wlan_hdd_cfg80211_connect_start(struct hdd_adapter *adapter,
 				&hdd_ctx->runtime_context.connect);
 		hdd_prevent_suspend_timeout(HDD_WAKELOCK_CONNECT_COMPLETE,
 					    WIFI_POWER_EVENT_WAKELOCK_CONNECT);
+		hdd_nofl_info("%s(vdevid-%d): issuing sme_roam_connect ssid:%.*s req_bssid:" QDF_MAC_ADDR_FMT " hint_bssid:" QDF_MAC_ADDR_FMT " oper_freq:%u hint_freq:%u auth_type:%d uc:%d mc:%d",
+			      adapter->dev->name, adapter->vdev_id,
+			      (int)roam_profile->SSIDs.SSIDList->SSID.length,
+			      roam_profile->SSIDs.SSIDList->SSID.ssId,
+			      QDF_MAC_ADDR_REF(sta_ctx->requested_bssid.bytes),
+			      QDF_MAC_ADDR_REF(roam_profile->bssid_hint.bytes),
+			      oper_freq, ch_freq_hint,
+			      sta_ctx->conn_info.auth_type,
+			      sta_ctx->conn_info.uc_encrypt_type,
+			      sta_ctx->conn_info.mc_encrypt_type);
 		qdf_status = sme_roam_connect(mac_handle,
 					      adapter->vdev_id, roam_profile,
 					      &roam_id);
+		hdd_nofl_info("%s(vdevid-%d): sme_roam_connect returned qdf_status:%d roam_id:%u",
+			      adapter->dev->name, adapter->vdev_id,
+			      qdf_status, roam_id);
 		if (QDF_IS_STATUS_ERROR(qdf_status))
 			status = qdf_status_to_os_return(qdf_status);
 
@@ -21304,7 +21370,7 @@ static inline void hdd_dump_connect_req(struct hdd_adapter *adapter,
 {
 	uint32_t i;
 
-	hdd_nofl_debug("cfg80211_connect req for %s(vdevid-%d): mode %d freq %d SSID %.*s auth type %d WPA ver %d n_akm %d n_cipher %d grp_cipher %x mfp %d freq hint %d",
+	hdd_nofl_info("cfg80211_connect req for %s(vdevid-%d): mode %d freq %d SSID %.*s auth type %d WPA ver %d n_akm %d n_cipher %d grp_cipher %x mfp %d freq hint %d",
 		       ndev->name, adapter->vdev_id, adapter->device_mode,
 		       req->channel ? req->channel->center_freq : 0,
 		       (int)req->ssid_len, req->ssid, req->auth_type,
@@ -21313,20 +21379,20 @@ static inline void hdd_dump_connect_req(struct hdd_adapter *adapter,
 		       req->crypto.cipher_group, req->mfp,
 		       req->channel_hint ? req->channel_hint->center_freq : 0);
 	if (req->bssid)
-		hdd_nofl_debug("BSSID "QDF_MAC_ADDR_FMT,
+		hdd_nofl_info("BSSID "QDF_MAC_ADDR_FMT,
 				QDF_MAC_ADDR_REF(req->bssid));
 	if (req->bssid_hint)
-		hdd_nofl_debug("BSSID hint "QDF_MAC_ADDR_FMT,
+		hdd_nofl_info("BSSID hint "QDF_MAC_ADDR_FMT,
 				QDF_MAC_ADDR_REF(req->bssid_hint));
 	if (req->prev_bssid)
-		hdd_nofl_debug("prev BSSID "QDF_MAC_ADDR_FMT,
+		hdd_nofl_info("prev BSSID "QDF_MAC_ADDR_FMT,
 				QDF_MAC_ADDR_REF(req->prev_bssid));
 
 	for (i = 0; i < req->crypto.n_akm_suites; i++)
-		hdd_nofl_debug("akm[%d] = %x", i, req->crypto.akm_suites[i]);
+		hdd_nofl_info("akm[%d] = %x", i, req->crypto.akm_suites[i]);
 
 	for (i = 0; i < req->crypto.n_ciphers_pairwise; i++)
-		hdd_nofl_debug("cipher_pairwise[%d] = %x", i,
+		hdd_nofl_info("cipher_pairwise[%d] = %x", i,
 			       req->crypto.ciphers_pairwise[i]);
 }
 
@@ -21357,16 +21423,26 @@ static int __wlan_hdd_cfg80211_connect(struct wiphy *wiphy,
 	uint8_t vdev_id_list[MAX_NUMBER_OF_CONC_CONNECTIONS], i;
 	bool disable_nan = true;
 	uint32_t ch_freq_hint = 0;
+	const u8 zero_mac[QDF_MAC_ADDR_SIZE] = {0};
 
 	hdd_enter();
+	hdd_nofl_info("cfg80211_connect req for %s(vdevid-%d) ssid_len:%zu auth:%d privacy:%d bssid:" QDF_MAC_ADDR_FMT " hint:" QDF_MAC_ADDR_FMT,
+		      ndev->name, adapter->vdev_id,
+		      req->ssid_len, req->auth_type,
+		      req->privacy ? 1 : 0,
+		      QDF_MAC_ADDR_REF(req->bssid ? req->bssid : zero_mac),
+		      QDF_MAC_ADDR_REF(bssid_hint ? bssid_hint : zero_mac));
 
 	if (QDF_GLOBAL_FTM_MODE == hdd_get_conparam()) {
 		hdd_err("Command not allowed in FTM mode");
 		return -EINVAL;
 	}
 
-	if (wlan_hdd_validate_vdev_id(adapter->vdev_id))
+	if (wlan_hdd_validate_vdev_id(adapter->vdev_id)) {
+		hdd_err("cfg80211_connect reject: invalid vdev_id %d",
+			adapter->vdev_id);
 		return -EINVAL;
+	}
 
 	qdf_mtrace(QDF_MODULE_ID_HDD, QDF_MODULE_ID_HDD,
 		   TRACE_CODE_HDD_CFG80211_CONNECT,
@@ -21387,8 +21463,11 @@ static int __wlan_hdd_cfg80211_connect(struct wiphy *wiphy,
 	}
 
 	status = wlan_hdd_validate_context(hdd_ctx);
-	if (0 != status)
+	if (0 != status) {
+		hdd_err("cfg80211_connect reject: validate_context status %d",
+			status);
 		return status;
+	}
 
 	if (req->bssid)
 		bssid = req->bssid;
@@ -21472,7 +21551,7 @@ static int __wlan_hdd_cfg80211_connect(struct wiphy *wiphy,
 	/*initialise security parameters */
 	status = wlan_hdd_cfg80211_set_privacy(adapter, req);
 	if (status < 0) {
-		hdd_err("Failed to set security params");
+		hdd_err("Failed to set security params, status %d", status);
 		return status;
 	}
 
@@ -22101,6 +22180,7 @@ static int __wlan_hdd_set_default_mgmt_key(struct wiphy *wiphy,
  */
 static int wlan_hdd_set_default_mgmt_key(struct wiphy *wiphy,
 					   struct net_device *netdev,
+					   int link_id,
 					   u8 key_index)
 {
 	int errno;
@@ -23826,6 +23906,7 @@ __wlan_hdd_cfg80211_set_ap_channel_width(struct wiphy *wiphy,
 static int
 wlan_hdd_cfg80211_set_ap_channel_width(struct wiphy *wiphy,
 				       struct net_device *dev,
+				       unsigned int link_id,
 				       struct cfg80211_chan_def *chandef)
 {
 	int errno;
@@ -24022,6 +24103,72 @@ int wlan_hdd_change_hw_mode_for_given_chnl(struct hdd_adapter *adapter,
 
 #ifdef FEATURE_MONITOR_MODE_SUPPORT
 /**
+ * wlan_hdd_cfg80211_get_channel() - Report current operating channel
+ * @wiphy: wiphy handle
+ * @wdev: wireless_dev handle
+ * @chandef: output channel definition
+ *
+ * Required by nl80211 (NL80211_CMD_GET_INTERFACE) and wext (SIOCGIWFREQ)
+ * so that tools like aireplay-ng / mdk3 can determine the current channel.
+ *
+ * Return: 0 on success, -ENODATA if no channel is set.
+ */
+static int wlan_hdd_cfg80211_get_channel(struct wiphy *wiphy,
+					 struct wireless_dev *wdev,
+					 unsigned int link_id,
+					 struct cfg80211_chan_def *chandef)
+{
+	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(wdev->netdev);
+	struct hdd_station_ctx *sta_ctx;
+	struct hdd_mon_set_ch_info *ch_info;
+	struct ieee80211_channel *chan;
+	uint32_t freq;
+
+	if (!adapter)
+		return -ENODATA;
+
+	/* Primary source: adapter->mon_chan_freq (set by both boot-time
+	 * monitor mode and cfg80211 set_monitor_channel).
+	 */
+	freq = adapter->mon_chan_freq;
+
+	/* Fallback: station context ch_info (set by hdd_mon_select_cbmode
+	 * in the roam callback path).
+	 */
+	if (!freq) {
+		sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
+		ch_info = &sta_ctx->ch_info;
+		freq = ch_info->freq;
+	}
+
+	if (!freq)
+		return -ENODATA;
+
+	chan = ieee80211_get_channel(wiphy, freq);
+	if (!chan)
+		return -ENODATA;
+
+	cfg80211_chandef_create(chandef, chan, NL80211_CHAN_NO_HT);
+
+	/* Upgrade width if we know the bandwidth */
+	switch (adapter->mon_bandwidth) {
+	case CH_WIDTH_40MHZ:
+		chandef->width = NL80211_CHAN_WIDTH_40;
+		break;
+	case CH_WIDTH_80MHZ:
+		chandef->width = NL80211_CHAN_WIDTH_80;
+		break;
+	case CH_WIDTH_160MHZ:
+		chandef->width = NL80211_CHAN_WIDTH_160;
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * wlan_hdd_cfg80211_set_mon_ch() - Set monitor mode capture channel
  * @wiphy: Handle to struct wiphy to get handle to module context.
  * @chandef: Contains information about the capture channel to be set.
@@ -24161,6 +24308,9 @@ static int __wlan_hdd_cfg80211_set_mon_ch(struct wiphy *wiphy,
 		adapter->monitor_mode_vdev_up_in_progress = false;
 		return qdf_status_to_os_return(status);
 	}
+
+	adapter->mon_chan_freq = chandef->chan->center_freq;
+	adapter->mon_bandwidth = ch_width;
 
 	hdd_exit();
 
@@ -24973,6 +25123,7 @@ static struct cfg80211_ops wlan_hdd_cfg80211_ops = {
 #endif
 #ifdef FEATURE_MONITOR_MODE_SUPPORT
 	.set_monitor_channel = wlan_hdd_cfg80211_set_mon_ch,
+	.get_channel = wlan_hdd_cfg80211_get_channel,
 #endif
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0)) || \
 	defined(CFG80211_ABORT_SCAN)

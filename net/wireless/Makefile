@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
+ifndef CONFIG_BACKPORT_INTEGRATE
 obj-$(CONFIG_CFG80211) += cfg80211.o
 obj-$(CONFIG_LIB80211) += lib80211.o
 obj-$(CONFIG_LIB80211_CRYPT_WEP) += lib80211_crypt_wep.o
@@ -23,3 +24,5 @@ $(obj)/regdb.c: $(src)/db.txt $(src)/genregdb.awk
 	@$(AWK) -f $(srctree)/$(src)/genregdb.awk < $< > $@
 
 clean-files := regdb.c
+
+endif # CONFIG_BACKPORT_INTEGRATE

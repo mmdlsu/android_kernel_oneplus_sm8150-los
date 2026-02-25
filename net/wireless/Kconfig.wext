@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Wireless Extensions symbols – kept separate so the in-tree
+# net/wireless/Kconfig (which defines CFG80211) is NOT sourced when
+# the backported cfg80211 is used.  These are kernel infrastructure
+# symbols needed by various in-tree drivers (e.g. Qualcomm CLD).
+#
+
+config WIRELESS_EXT
+	bool
+
+config WEXT_CORE
+	def_bool y
+
+config WEXT_PROC
+	def_bool y
+	depends on PROC_FS
+	depends on WEXT_CORE
+
+config WEXT_SPY
+	bool
+
+config WEXT_PRIV
+	bool

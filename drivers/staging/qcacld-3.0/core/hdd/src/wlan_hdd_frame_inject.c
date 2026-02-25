@@ -124,6 +124,9 @@ QDF_STATUS hdd_init_frame_injection(struct hdd_adapter *adapter)
 	/* Initialize other fields */
 	injection_ctx->is_monitor_mode = false;
 	injection_ctx->adapter = adapter;
+	injection_ctx->wma_handle = cds_get_context(QDF_MODULE_ID_WMA);
+	if (!injection_ctx->wma_handle)
+		hdd_inject_warn("WMA handle is not ready; frame injection TX may be unavailable");
 
 	/* Initialize recovery context */
 	qdf_mem_zero(&injection_ctx->recovery_ctx, sizeof(injection_ctx->recovery_ctx));
@@ -379,6 +382,7 @@ QDF_STATUS hdd_process_frame_injection(struct hdd_adapter *adapter,
 {
 	struct hdd_injection_ctx *injection_ctx;
 	QDF_STATUS status;
+	uint8_t frame_type;
 
 	hdd_inject_debug("Processing frame injection: session_id=%u, len=%u",
 			 req->session_id, req->frame_len);
@@ -395,6 +399,8 @@ QDF_STATUS hdd_process_frame_injection(struct hdd_adapter *adapter,
 	}
 
 	injection_ctx = adapter->injection_ctx;
+	if (!injection_ctx->wma_handle)
+		injection_ctx->wma_handle = cds_get_context(QDF_MODULE_ID_WMA);
 
 	/* Validate permissions and apply rate limiting */
 	status = hdd_validate_injection_permissions(adapter, req);
@@ -425,6 +431,18 @@ QDF_STATUS hdd_process_frame_injection(struct hdd_adapter *adapter,
 		hdd_update_injection_stats(adapter, HDD_INJECTION_STAT_VALIDATION_FAILURES, 1);
 		hdd_inject_err("Frame sanitization failed: %d", status);
 		return status;
+	}
+
+	/*
+	 * Injection currently transmits via WMI mgmt-tx path, so only 802.11
+	 * management frames are supported on this path.
+	 */
+	frame_type = req->frame_data[0] & 0x0c;
+	if (frame_type != 0x00) {
+		hdd_update_injection_stats(adapter, HDD_INJECTION_STAT_VALIDATION_FAILURES, 1);
+		hdd_inject_warn("Dropping non-management injection frame: fc_type=0x%02x len=%u",
+				frame_type, req->frame_len);
+		return QDF_STATUS_E_NOSUPPORT;
 	}
 
 	/* Queue frame for injection */
@@ -562,7 +580,9 @@ void hdd_process_injection_queue_work(void *arg)
 	struct hdd_injection_ctx *injection_ctx = (struct hdd_injection_ctx *)arg;
 	struct inject_frame_req *req;
 	qdf_list_node_t *node;
+	void *soc;
 	QDF_STATUS status;
+	static bool queue_tx_path_logged;
 
 	if (!injection_ctx) {
 		hdd_inject_err("Invalid injection context");
@@ -585,11 +605,79 @@ void hdd_process_injection_queue_work(void *arg)
 		/* Update timing for processing start */
 		req->process_time = qdf_get_log_timestamp();
 
-		/* Send frame to WMA layer for transmission */
-		if (injection_ctx->wma_handle) {
+			/* Send frame to WMA layer for transmission */
+			if (injection_ctx->wma_handle) {
+				uint8_t tx_vdev_id = injection_ctx->adapter->vdev_id;
+				uint8_t cdp_mon_vdev_id = 0xff;
+				uint8_t mon_adapter_vdev_id = 0xff;
+				bool mon_adapter_open = false;
+				bool monitor_mode_active =
+					injection_ctx->is_monitor_mode;
+
+				if (!monitor_mode_active && injection_ctx->adapter) {
+					struct net_device *tx_dev =
+						injection_ctx->adapter->dev;
+
+					if (injection_ctx->adapter->device_mode ==
+						    QDF_MONITOR_MODE ||
+					    (tx_dev && tx_dev->ieee80211_ptr &&
+					     tx_dev->ieee80211_ptr->iftype ==
+						     NL80211_IFTYPE_MONITOR)) {
+						monitor_mode_active = true;
+						injection_ctx->is_monitor_mode = true;
+					}
+				}
+
+			/*
+			 * For monitor-mode injection, prefer monitor vdev id from
+			 * datapath. Some userspace monitor workflows keep adapter
+			 * vdev as STA while monitor vdev is separate.
+			 */
+				if (monitor_mode_active) {
+					struct hdd_context *hdd_ctx;
+					struct hdd_adapter *mon_adapter;
+
+				hdd_ctx = WLAN_HDD_GET_CTX(injection_ctx->adapter);
+				mon_adapter = hdd_ctx ?
+					hdd_get_adapter(hdd_ctx, QDF_MONITOR_MODE) :
+					NULL;
+				if (mon_adapter) {
+					mon_adapter_vdev_id = mon_adapter->vdev_id;
+					mon_adapter_open =
+						test_bit(DEVICE_IFACE_OPENED,
+							 &mon_adapter->event_flags);
+				}
+
+				soc = cds_get_context(QDF_MODULE_ID_SOC);
+				if (soc)
+					cdp_mon_vdev_id =
+						cdp_get_mon_vdev_from_pdev(soc,
+								     OL_TXRX_PDEV_ID);
+
+				if (mon_adapter_open &&
+				    mon_adapter_vdev_id != 0xff &&
+				    mon_adapter_vdev_id != (uint8_t)-EINVAL) {
+					tx_vdev_id = mon_adapter_vdev_id;
+				} else if (cdp_mon_vdev_id != 0xff &&
+					   cdp_mon_vdev_id != (uint8_t)-EINVAL) {
+					tx_vdev_id = cdp_mon_vdev_id;
+				}
+			}
+
+				if (!queue_tx_path_logged) {
+					hdd_inject_info("injection queue tx path: adapter_vdev=%u monitor_mode=%u monitor_adapter_vdev=%u monitor_adapter_open=%u cdp_monitor_vdev=%u tx_vdev=%u",
+							injection_ctx->adapter->vdev_id,
+							monitor_mode_active ? 1 : 0,
+							mon_adapter_vdev_id,
+							mon_adapter_open ? 1 : 0,
+							cdp_mon_vdev_id,
+							tx_vdev_id);
+				queue_tx_path_logged = true;
+			}
+
 			QDF_STATUS wma_status = wma_queue_injection_frame(
 				(tp_wma_handle)injection_ctx->wma_handle, req, 
-				injection_ctx->adapter->vdev_id);
+				tx_vdev_id);
 			
 			/* Update timing for completion */
 			req->complete_time = qdf_get_log_timestamp();

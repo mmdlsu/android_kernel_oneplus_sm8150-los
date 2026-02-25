@@ -286,9 +286,11 @@ tdls_calc_channels_from_staparams(struct tdls_update_peer_params *req_info,
 	int next;
 	uint8_t *dest_chans;
 	const uint8_t *src_chans;
+	u8 supported_channels_len;
 
 	dest_chans = req_info->supported_channels;
 	src_chans = params->supported_channels;
+	supported_channels_len = params->supported_channels_len;
 
 	/* Convert (first channel , number of channels) tuple to
 	 * the total list of channels. This goes with the assumption
@@ -296,7 +298,7 @@ tdls_calc_channels_from_staparams(struct tdls_update_peer_params *req_info,
 	 * are an incremental of 1 else an incremental of 4 till the number
 	 * of channels.
 	 */
-	for (i = 0; i < params->supported_channels_len &&
+	for (i = 0; i < supported_channels_len &&
 	     j < WLAN_MAC_MAX_SUPP_CHANNELS; i += 2) {
 		int wifi_chan_index;
 
@@ -378,6 +380,31 @@ wlan_cfg80211_tdls_extract_params(struct tdls_update_peer_params *req_info,
 		qdf_mem_copy(req_info->extn_capability, params->ext_capab,
 			     sizeof(req_info->extn_capability));
 
+#ifdef CONFIG_BACKPORT_INTEGRATE
+	if (params->link_sta_params.ht_capa) {
+		req_info->htcap_present = 1;
+		qdf_mem_copy(&req_info->ht_cap, params->link_sta_params.ht_capa,
+			     sizeof(struct htcap_cmn_ie));
+	}
+
+	req_info->supported_rates_len = params->link_sta_params.supported_rates_len;
+
+	/* Note : The Maximum sizeof supported_rates sent by the Supplicant is
+	 * 32. The supported_rates array , for all the structures propogating
+	 * till Add Sta to the firmware has to be modified , if the supplicant
+	 * (ieee80211) is modified to send more rates.
+	 */
+
+	/* To avoid Data Currption , set to max length to SIR_MAC_MAX_SUPP_RATES
+	 */
+	if (req_info->supported_rates_len > WLAN_MAC_MAX_SUPP_RATES)
+		req_info->supported_rates_len = WLAN_MAC_MAX_SUPP_RATES;
+
+	if (req_info->supported_rates_len) {
+		qdf_mem_copy(req_info->supported_rates,
+			     params->link_sta_params.supported_rates,
+			     req_info->supported_rates_len);
+#else
 	if (params->ht_capa) {
 		req_info->htcap_present = 1;
 		qdf_mem_copy(&req_info->ht_cap, params->ht_capa,
@@ -401,6 +428,7 @@ wlan_cfg80211_tdls_extract_params(struct tdls_update_peer_params *req_info,
 		qdf_mem_copy(req_info->supported_rates,
 			     params->supported_rates,
 			     req_info->supported_rates_len);
+#endif
 		osif_debug("Supported Rates with Length %d",
 			   req_info->supported_rates_len);
 
@@ -409,6 +437,17 @@ wlan_cfg80211_tdls_extract_params(struct tdls_update_peer_params *req_info,
 				   req_info->supported_rates[i]);
 	}
 
+#ifdef CONFIG_BACKPORT_INTEGRATE
+	if (params->link_sta_params.vht_capa) {
+		req_info->vhtcap_present = 1;
+		qdf_mem_copy(&req_info->vht_cap, params->link_sta_params.vht_capa,
+			     sizeof(struct vhtcap));
+	}
+
+	if (params->link_sta_params.ht_capa || params->link_sta_params.vht_capa ||
+	    (params->sta_flags_set & BIT(NL80211_STA_FLAG_WME)))
+		req_info->is_qos_wmm_sta = true;
+#else
 	if (params->vht_capa) {
 		req_info->vhtcap_present = 1;
 		qdf_mem_copy(&req_info->vht_cap, params->vht_capa,
@@ -418,6 +457,7 @@ wlan_cfg80211_tdls_extract_params(struct tdls_update_peer_params *req_info,
 	if (params->ht_capa || params->vht_capa ||
 	    (params->sta_flags_set & BIT(NL80211_STA_FLAG_WME)))
 		req_info->is_qos_wmm_sta = true;
+#endif
 	if (params->sta_flags_set & BIT(NL80211_STA_FLAG_MFP)) {
 		osif_debug("TDLS peer pmf capable");
 		req_info->is_pmf = 1;

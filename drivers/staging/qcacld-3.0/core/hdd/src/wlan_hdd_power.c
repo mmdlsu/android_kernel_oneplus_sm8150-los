@@ -1586,8 +1586,10 @@ QDF_STATUS hdd_wlan_re_init(void)
 	bug_on_reinit_failure = hdd_ctx->config->bug_on_reinit_failure;
 
 	adapter = hdd_get_first_valid_adapter(hdd_ctx);
-	if (!adapter)
-		hdd_err("Failed to get adapter");
+	if (!adapter) {
+		hdd_err("Failed to get adapter, aborting re-init");
+		goto err_re_init;
+	}
 
 	hdd_dp_trace_init(hdd_ctx->config);
 

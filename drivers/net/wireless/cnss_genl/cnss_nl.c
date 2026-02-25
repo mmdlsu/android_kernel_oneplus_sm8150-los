@@ -184,6 +184,9 @@ static int __cld80211_init(void)
 	if (err) {
 		pr_err("CLD80211: Failed to register cld80211 family: %d\n",
 		       err);
+	} else {
+		pr_info("CLD80211: Registered family id=%d mcgrp_offset=%u\n",
+			cld80211_fam.id, cld80211_fam.mcgrp_offset);
 	}
 
 	return err;

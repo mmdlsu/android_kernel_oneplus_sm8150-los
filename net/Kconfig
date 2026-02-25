@@ -400,8 +400,12 @@ menuconfig WIRELESS
 
 if WIRELESS
 
-source "net/wireless/Kconfig"
-source "net/mac80211/Kconfig"
+# The in-tree net/wireless/Kconfig and net/mac80211/Kconfig are NOT
+# sourced here — they are replaced by the backported versions from
+# backports/Kconfig.sources (CFG80211, MAC80211, etc.).
+# Only the WEXT infrastructure symbols are sourced from in-tree,
+# as they are needed by Qualcomm CLD drivers.
+source "net/wireless/Kconfig.wext"
 
 endif # WIRELESS
 

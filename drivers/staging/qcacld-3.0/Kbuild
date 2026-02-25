@@ -2065,7 +2065,7 @@ ifeq ($(CONFIG_CNSS_QCA6750), y)
 TARGET_INC +=	-I$(WLAN_FW_API)/hw/qca6750/v1
 endif
 
-LINUX_INC :=	-Iinclude
+LINUX_INC :=
 
 INCS :=		$(HDD_INC) \
 		$(SYNC_INC) \
@@ -2312,6 +2312,29 @@ endif
 ifeq ($(CONFIG_WLAN_FEATURE_DP_RX_THREADS), y)
 OBJS += $(TXRX3.0_OBJS)
 endif
+
+########## Backports ABI alignment ##########
+# Prepend backport-include/ and backport include/ to LINUXINCLUDE so they
+# come BEFORE the kernel's own -Iinclude.  Using ccflags-y does NOT work
+# because those flags appear AFTER LINUXINCLUDE in the compiler command,
+# meaning the in-tree headers would always win.
+ifdef CONFIG_BACKPORT_INTEGRATE
+LINUXINCLUDE := \
+    -I$(srctree)/backports/backport-include \
+    -I$(srctree)/backports/backport-include/uapi \
+    -I$(srctree)/backports/include \
+    -I$(srctree)/backports/include/uapi \
+    $(LINUXINCLUDE)
+ccflags-y := \
+    -I$(srctree)/backports/backport-include \
+    -I$(srctree)/backports/backport-include/uapi \
+    -I$(srctree)/backports/include \
+    -I$(srctree)/backports/include/uapi \
+    $(ccflags-y)
+ccflags-y += -include $(srctree)/backports/backport-include/backport/backport.h
+ccflags-y += -include $(srctree)/drivers/staging/qcacld-3.0/qcacld_backport_undo.h
+endif
+##############################################
 
 ccflags-y += $(INCS)
 

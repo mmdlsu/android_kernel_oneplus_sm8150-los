@@ -1187,8 +1187,6 @@ void hdd_ch_avoid_ind(struct hdd_context *hdd_ctxt,
 }
 #endif
 
-#if defined CFG80211_USER_HINT_CELL_BASE_SELF_MANAGED || \
-	    (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0))
 static void map_nl_reg_rule_flags(uint16_t drv_reg_rule_flag,
 				  uint32_t *regd_rule_flag)
 {
@@ -1316,7 +1314,6 @@ void hdd_send_wiphy_regd_sync_event(struct hdd_context *hdd_ctx)
 	hdd_debug("regd sync event sent with reg rules info");
 	qdf_mem_free(regd);
 }
-#endif
 
 #if defined(CONFIG_BAND_6GHZ) && (defined(CFG80211_6GHZ_BAND_SUPPORTED) || \
 	(KERNEL_VERSION(5, 4, 0) <= LINUX_VERSION_CODE))
@@ -1402,11 +1399,8 @@ static void hdd_regulatory_dyn_cbk(struct wlan_objmgr_psoc *psoc,
 	 * has support for processing user cell_base hints when wiphy is
 	 * self managed or check the backport flag for the same.
 	 */
-#if defined CFG80211_USER_HINT_CELL_BASE_SELF_MANAGED || \
-	    (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0))
 	if (wiphy->registered)
 		hdd_send_wiphy_regd_sync_event(hdd_ctx);
-#endif
 
 	if (avoid_freq_ind) {
 		hdd_ch_avoid_ind(hdd_ctx, &avoid_freq_ind->chan_list,
@@ -1452,10 +1446,7 @@ int hdd_regulatory_init(struct hdd_context *hdd_ctx, struct wiphy *wiphy)
 	 * has support for processing user cell_base hints when wiphy is
 	 * self managed or check the backport flag for the same.
 	 */
-#if defined CFG80211_USER_HINT_CELL_BASE_SELF_MANAGED || \
-	    (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0))
 	wiphy->features |= NL80211_FEATURE_CELL_BASE_REG_HINTS;
-#endif
 	wiphy->reg_notifier = hdd_reg_notifier;
 	offload_enabled = ucfg_reg_is_regdb_offloaded(hdd_ctx->psoc);
 	hdd_debug("regulatory offload_enabled %d", offload_enabled);

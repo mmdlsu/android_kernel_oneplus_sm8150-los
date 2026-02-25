@@ -1,0 +1,15 @@
+# this has the configuration for the backport code
+source "backports/compat/Kconfig"
+
+# Backported wireless stack (replaces in-tree cfg80211/mac80211)
+source "backports/net/wireless/Kconfig"
+source "backports/net/mac80211/Kconfig"
+
+# Backported wireless drivers (replaces in-tree drivers/net/wireless/)
+source "backports/drivers/net/wireless/Kconfig"
+
+# The following subsystems already exist in the kernel tree and are NOT
+# sourced from backports to avoid Kconfig symbol conflicts:
+#   net/qrtr/, drivers/bus/mhi/, drivers/soc/qcom/,
+#   drivers/ssb/, drivers/bcma/, drivers/staging/,
+#   drivers/net/usb/, drivers/usb/class/

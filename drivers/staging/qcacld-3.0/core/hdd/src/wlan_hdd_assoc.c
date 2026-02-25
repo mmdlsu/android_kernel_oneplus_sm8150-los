@@ -2419,11 +2419,7 @@ static void hdd_send_roamed_ind(struct net_device *dev,
 {
 	struct cfg80211_roam_info info = {0};
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0))
 	info.links[0].bss = bss;
-#else
-	info.bss = bss;
-#endif
 	info.req_ie = req_ie;
 	info.req_ie_len = req_ie_len;
 	info.resp_ie = resp_ie;
@@ -3720,6 +3716,25 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 				 adapter->vdev_id,
 				 QDF_MAC_ADDR_REF(sta_ctx->requested_bssid.bytes),
 				 roam_result, roam_status);
+		if (roam_info) {
+			hdd_nofl_info("%s(vdevid-%d): assoc failure detail reason:%u status_code:%u is_fils:%u pbFrames:%pK req_len:%u rsp_len:%u bcn_len:%u disconn_in_prog:%u connect_req_status:%u",
+				      dev->name, adapter->vdev_id,
+				      roam_info->reasonCode,
+				      roam_info->status_code,
+				      roam_info->is_fils_connection,
+				      roam_info->pbFrames,
+				      roam_info->nAssocReqLength,
+				      roam_info->nAssocRspLength,
+				      roam_info->nBeaconLength,
+				      hddDisconInProgress,
+				      adapter->connect_req_status);
+		} else {
+			hdd_nofl_info("%s(vdevid-%d): assoc failure detail roam_info NULL disconn_in_prog:%u connect_req_status:%u requested_bssid:" QDF_MAC_ADDR_FMT,
+				      dev->name, adapter->vdev_id,
+				      hddDisconInProgress,
+				      adapter->connect_req_status,
+				      QDF_MAC_ADDR_REF(sta_ctx->requested_bssid.bytes));
+		}
 
 		if ((eCSR_ROAM_RESULT_SCAN_FOR_SSID_FAILURE == roam_result) ||
 		   (roam_info &&
@@ -4909,6 +4924,22 @@ hdd_sme_roam_callback(void *context, struct csr_roam_info *roam_info,
 
 	sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
 	hdd_ctx = WLAN_HDD_GET_CTX(adapter);
+	if (roam_info) {
+		hdd_nofl_info("%s(vdevid-%d): roam cb status:%d result:%d id:%u reason:%u status_code:%u bssid:" QDF_MAC_ADDR_FMT " req_len:%u rsp_len:%u conn_state:%d",
+			      adapter->dev ? adapter->dev->name : "null",
+			      adapter->vdev_id, roam_status, roam_result,
+			      roam_id, roam_info->reasonCode,
+			      roam_info->status_code,
+			      QDF_MAC_ADDR_REF(roam_info->bssid.bytes),
+			      roam_info->nAssocReqLength,
+			      roam_info->nAssocRspLength,
+			      sta_ctx->conn_info.conn_state);
+	} else {
+		hdd_nofl_info("%s(vdevid-%d): roam cb status:%d result:%d id:%u roam_info is NULL conn_state:%d",
+			      adapter->dev ? adapter->dev->name : "null",
+			      adapter->vdev_id, roam_status, roam_result,
+			      roam_id, sta_ctx->conn_info.conn_state);
+	}
 
 	MTRACE(qdf_trace(QDF_MODULE_ID_HDD, TRACE_CODE_HDD_RX_SME_MSG,
 				 adapter->vdev_id, roam_status));

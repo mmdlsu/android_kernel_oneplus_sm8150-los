@@ -8362,8 +8362,18 @@ static int hdd_driver_command(struct hdd_adapter *adapter,
 	/* Make sure the command is NUL-terminated */
 	command[priv_data->total_len] = '\0';
 
-	hdd_debug("%s: %s", adapter->dev->name, command);
+	{
+		char *cmd_str = (char *)command;
+		const char *sep = strchrnul(cmd_str, ' ');
+		int token_len = sep - cmd_str;
+
+		hdd_nofl_info("%s(vdevid-%d): private ioctl cmd='%.*s' total_len=%d",
+			      adapter->dev->name, adapter->vdev_id,
+			      token_len, cmd_str, priv_data->total_len);
+	}
 	ret = hdd_drv_cmd_process(adapter, command, priv_data);
+	hdd_nofl_info("%s(vdevid-%d): private ioctl processed rc=%d",
+		      adapter->dev->name, adapter->vdev_id, ret);
 
 exit:
 	if (command)
@@ -8532,4 +8542,3 @@ int hdd_ioctl(struct net_device *net_dev, struct ifreq *ifr, int cmd)
 
 	return errno;
 }
-

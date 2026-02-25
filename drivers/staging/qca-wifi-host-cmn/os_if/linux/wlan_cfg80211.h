@@ -164,7 +164,7 @@ static inline int wlan_cfg80211_nla_parse(struct nlattr **tb,
 					  int maxtype,
 					  const struct nlattr *head,
 					  int len,
-					  const struct nla_policy *policy)
+					  const void *policy)
 {
 	return nla_parse(tb, maxtype, head, len, policy);
 }
@@ -173,25 +173,25 @@ static inline int
 wlan_cfg80211_nla_parse_nested(struct nlattr *tb[],
 			       int maxtype,
 			       const struct nlattr *nla,
-			       const struct nla_policy *policy)
+			       const void *policy)
 {
-	return nla_parse_nested(tb, maxtype, nla, policy);
+    return nla_parse_nested(tb, maxtype, nla, policy);
 }
 #else
 static inline int wlan_cfg80211_nla_parse(struct nlattr **tb,
 					  int maxtype,
 					  const struct nlattr *head,
 					  int len,
-					  const struct nla_policy *policy)
+					  const void *policy)
 {
 	return nla_parse(tb, maxtype, head, len, policy, NULL);
 }
 
 static inline int
 wlan_cfg80211_nla_parse_nested(struct nlattr *tb[],
-			       int maxtype,
-			       const struct nlattr *nla,
-			       const struct nla_policy *policy)
+				   int maxtype,
+				   const struct nlattr *nla,
+				   const void *policy)
 {
 	return nla_parse_nested(tb, maxtype, nla, policy, NULL);
 }

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
+ifndef CONFIG_BACKPORT_INTEGRATE
 obj-$(CONFIG_MAC80211) += mac80211.o
 
 # mac80211 objects
@@ -63,3 +64,5 @@ mac80211-$(CONFIG_MAC80211_RC_MINSTREL) += $(rc80211_minstrel-y)
 mac80211-$(CONFIG_MAC80211_RC_MINSTREL_HT) += $(rc80211_minstrel_ht-y)
 
 ccflags-y += -DDEBUG
+
+endif # CONFIG_BACKPORT_INTEGRATE

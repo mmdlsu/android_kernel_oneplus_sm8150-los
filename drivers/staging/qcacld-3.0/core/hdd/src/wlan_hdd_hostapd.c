@@ -923,7 +923,7 @@ QDF_STATUS hdd_chan_change_notify(struct hdd_adapter *adapter,
 		chandef.chan->center_freq, chandef.width, chandef.center_freq1,
 		chandef.center_freq2);
 
-	cfg80211_ch_switch_notify(dev, &chandef);
+	cfg80211_ch_switch_notify(dev, &chandef, 0);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -6119,7 +6119,8 @@ static enum hw_mode_bandwidth wlan_hdd_get_channel_bw(
  * Return: zero for success non-zero for failure
  */
 int wlan_hdd_cfg80211_stop_ap(struct wiphy *wiphy,
-				struct net_device *dev)
+				struct net_device *dev,
+				unsigned int link_id)
 {
 	int errno;
 	struct osif_vdev_sync *vdev_sync;
@@ -6718,9 +6719,11 @@ static int __wlan_hdd_cfg80211_start_ap(struct wiphy *wiphy,
 
 		hdd_start_tsf_sync(adapter);
 
-		if (wdev->chandef.chan->center_freq !=
+		struct cfg80211_chan_def *wdev_chan = wdev_chandef(wdev, 0);
+
+		if (wdev_chan && wdev_chan->chan && wdev_chan->chan->center_freq !=
 				params->chandef.chan->center_freq)
-			params->chandef = wdev->chandef;
+			params->chandef = *wdev_chan;
 		/*
 		 * If Do_Not_Break_Stream enabled send avoid channel list
 		 * to application.

@@ -696,8 +696,12 @@ static struct hif_exec_context *hif_exec_napi_create(uint32_t scale)
 	ctx->exec_ctx.inited = true;
 	ctx->exec_ctx.scale_bin_shift = scale;
 	qdf_net_if_create_dummy_if((struct qdf_net_if *)&ctx->netdev);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0) || defined(CONFIG_BACKPORT_INTEGRATE)
+	netif_napi_add(&(ctx->netdev), &(ctx->napi), hif_exec_poll);
+#else
 	netif_napi_add(&(ctx->netdev), &(ctx->napi), hif_exec_poll,
 		       QCA_NAPI_BUDGET);
+#endif
 	napi_enable(&ctx->napi);
 
 	return &ctx->exec_ctx;
