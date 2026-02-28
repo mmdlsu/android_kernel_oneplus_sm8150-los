@@ -32,6 +32,8 @@ if BACKPORT_LINUX
 source "backports/Kconfig.versions"
 source "backports/Kconfig.kernel"
 source "backports/Kconfig.sources"
-source "backports/Kconfig.local"
+
+# BACKPORTED_* mirror symbols from Kconfig.local are intentionally disabled.
+# Keep only real config symbols used by integrated backports.
 
 endif # BACKPORT_LINUX

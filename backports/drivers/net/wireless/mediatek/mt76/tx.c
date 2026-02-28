@@ -235,11 +235,17 @@ void __mt76_tx_complete_skb(struct mt76_dev *dev, u16 wcid_idx, struct sk_buff *
 	struct mt76_tx_cb *cb = mt76_tx_skb_cb(skb);
 	struct ieee80211_tx_status status = {
 		.skb = skb,
-		.free_list = free_list,
 	};
 	struct mt76_wcid *wcid = NULL;
 	struct ieee80211_hw *hw;
 	struct sk_buff_head list;
+
+#if LINUX_VERSION_IS_GEQ(4,19,0)
+	status.free_list = free_list;
+#else
+	/* Older mac80211 expects struct sk_buff_head here; avoid type-mismatch. */
+	status.free_list = NULL;
+#endif
 
 	rcu_read_lock();
 

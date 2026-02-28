@@ -1244,8 +1244,17 @@ void mt76_rx_complete(struct mt76_dev *dev, struct sk_buff_head *frames,
 {
 	struct ieee80211_sta *sta;
 	struct ieee80211_hw *hw;
-	struct sk_buff *skb, *tmp;
+	struct sk_buff *skb;
+#if LINUX_VERSION_IS_GEQ(4,19,0)
+	struct sk_buff *tmp;
 	LIST_HEAD(list);
+#else
+	struct sk_buff_head list;
+#endif
+
+#if LINUX_VERSION_IS_LESS(4,19,0)
+	__skb_queue_head_init(&list);
+#endif
 
 	spin_lock(&dev->rx_lock);
 	while ((skb = __skb_dequeue(frames)) != NULL) {
@@ -1273,10 +1282,15 @@ void mt76_rx_complete(struct mt76_dev *dev, struct sk_buff_head *frames,
 		return;
 	}
 
+#if LINUX_VERSION_IS_GEQ(4,19,0)
 	list_for_each_entry_safe(skb, tmp, &list, list) {
 		skb_list_del_init(skb);
 		napi_gro_receive(napi, skb);
 	}
+#else
+	while ((skb = __skb_dequeue(&list)) != NULL)
+		napi_gro_receive(napi, skb);
+#endif
 }
 
 void mt76_rx_poll_complete(struct mt76_dev *dev, enum mt76_rxq_id q,

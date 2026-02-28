@@ -12,6 +12,5 @@ config WLAN_VENDOR_MEDIATEK
 
 if WLAN_VENDOR_MEDIATEK
 source "backports/drivers/net/wireless/mediatek/mt7601u/Kconfig"
-# mt76 disabled - using submodule version from drivers/net/wireless/mediatek/mt76/
-# source "backports/drivers/net/wireless/mediatek/mt76/Kconfig"
+source "backports/drivers/net/wireless/mediatek/mt76/Kconfig"
 endif # WLAN_VENDOR_MEDIATEK

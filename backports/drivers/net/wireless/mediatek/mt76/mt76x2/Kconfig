@@ -4,7 +4,6 @@ config MT76x2_COMMON
 	select MT76x02_LIB
 
 config MT76x2E
-	depends on !KERNEL_4_19
 	tristate "MediaTek MT76x2E (PCIe) support"
 	select MT76x2_COMMON
 	depends on MAC80211
@@ -17,7 +16,6 @@ config MT76x2E
 	  To compile this driver as a module, choose M here.
 
 config MT76x2U
-	depends on !KERNEL_4_19
 	tristate "MediaTek MT76x2U (USB) support"
 	select MT76x2_COMMON
 	select MT76x02_USB

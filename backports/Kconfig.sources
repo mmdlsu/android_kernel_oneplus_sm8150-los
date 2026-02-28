@@ -5,7 +5,8 @@ source "backports/compat/Kconfig"
 source "backports/net/wireless/Kconfig"
 source "backports/net/mac80211/Kconfig"
 
-# Backported wireless drivers (replaces in-tree drivers/net/wireless/)
+# Backported wireless drivers (replaces in-tree drivers/net/wireless/).
+# This tree is intentionally trimmed to MediaTek MT76 and Realtek families.
 source "backports/drivers/net/wireless/Kconfig"
 
 # The following subsystems already exist in the kernel tree and are NOT

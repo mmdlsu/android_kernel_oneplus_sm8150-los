@@ -13,7 +13,7 @@ mt76-y := \
 mt76-$(CONFIG_PCI) += pci.o
 mt76-$(CONFIG_NL80211_TESTMODE) += testmode.o
 
-mt76-usb-y := usb.o usb_trace.o
+mt76-usb-y := usb.o usb_trace.o usb_modeswitch.o
 mt76-sdio-y := sdio.o sdio_txrx.o
 
 CFLAGS_trace.o := -I$(src)
