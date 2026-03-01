@@ -124,6 +124,9 @@ QDF_STATUS hdd_init_frame_injection(struct hdd_adapter *adapter)
 	/* Initialize other fields */
 	injection_ctx->is_monitor_mode = false;
 	injection_ctx->adapter = adapter;
+	injection_ctx->wma_handle = cds_get_context(QDF_MODULE_ID_WMA);
+	if (!injection_ctx->wma_handle)
+		hdd_inject_warn("WMA handle unavailable during injection init, will retry later");
 
 	/* Initialize recovery context */
 	qdf_mem_zero(&injection_ctx->recovery_ctx, sizeof(injection_ctx->recovery_ctx));
@@ -561,6 +564,7 @@ void hdd_process_injection_queue_work(void *arg)
 {
 	struct hdd_injection_ctx *injection_ctx = (struct hdd_injection_ctx *)arg;
 	struct inject_frame_req *req;
+	tp_wma_handle wma_handle;
 	qdf_list_node_t *node;
 	QDF_STATUS status;
 
@@ -570,6 +574,13 @@ void hdd_process_injection_queue_work(void *arg)
 	}
 
 	hdd_inject_debug("Processing injection queue work");
+
+	wma_handle = (tp_wma_handle)injection_ctx->wma_handle;
+	if (!wma_handle) {
+		wma_handle = cds_get_context(QDF_MODULE_ID_WMA);
+		if (wma_handle)
+			injection_ctx->wma_handle = wma_handle;
+	}
 
 	/* Process all queued requests */
 	while (true) {
@@ -586,9 +597,9 @@ void hdd_process_injection_queue_work(void *arg)
 		req->process_time = qdf_get_log_timestamp();
 
 		/* Send frame to WMA layer for transmission */
-		if (injection_ctx->wma_handle) {
+		if (wma_handle) {
 			QDF_STATUS wma_status = wma_queue_injection_frame(
-				(tp_wma_handle)injection_ctx->wma_handle, req, 
+				wma_handle, req,
 				injection_ctx->adapter->vdev_id);
 			
 			/* Update timing for completion */
@@ -608,15 +619,10 @@ void hdd_process_injection_queue_work(void *arg)
 				hdd_inject_err("Failed to queue frame to WMA: %d", wma_status);
 			}
 		} else {
-			/* Fallback: just update statistics if WMA handle not available */
 			req->complete_time = qdf_get_log_timestamp();
-			hdd_update_injection_stats(injection_ctx->adapter, HDD_INJECTION_STAT_FRAMES_TRANSMITTED, 1);
-			
-			/* Calculate and update latency statistics */
-			uint64_t total_latency = req->complete_time - req->submit_time;
-			hdd_update_injection_latency(injection_ctx->adapter, total_latency);
-			
-			hdd_inject_warn("WMA handle not available, simulating transmission");
+			hdd_update_injection_stats(injection_ctx->adapter,
+						   HDD_INJECTION_STAT_FRAMES_DROPPED, 1);
+			hdd_inject_err("WMA handle unavailable, dropping injection frame");
 		}
 
 		hdd_inject_debug("Processed injection request: session_id=%u",

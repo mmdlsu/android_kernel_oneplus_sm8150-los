@@ -31,9 +31,11 @@
 #include <cds_api.h>
 #include <cds_sched.h>
 #include <linux/cpu.h>
+#include <linux/cred.h>
 #include <linux/etherdevice.h>
 #include <linux/firmware.h>
 #include <linux/kernel.h>
+#include <linux/uidgid.h>
 #include <wlan_hdd_tx_rx.h>
 #include <wni_api.h>
 #include <wlan_hdd_cfg.h>
@@ -114,6 +116,7 @@
 #include <wlan_hdd_ipa.h>
 #include "hif.h"
 #include "wma.h"
+#include "wma_frame_inject.h"
 #include "wlan_policy_mgr_api.h"
 #include "wlan_hdd_tsf.h"
 #include "bmi.h"
@@ -2714,6 +2717,14 @@ static int __hdd_mon_open(struct net_device *dev)
 	if (ret)
 		return ret;
 
+	if (hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE &&
+	    test_bit(DEVICE_IFACE_OPENED, &adapter->event_flags)) {
+		wlan_hdd_netif_queue_control(adapter,
+					     WLAN_START_ALL_NETIF_QUEUE_N_CARRIER,
+					     WLAN_CONTROL_PATH);
+		return 0;
+	}
+
 	hdd_mon_mode_ether_setup(dev);
 
 	if (con_mode == QDF_GLOBAL_MONITOR_MODE) {
@@ -2734,7 +2745,6 @@ static int __hdd_mon_open(struct net_device *dev)
 			hdd_err("hdd_start_adapters() successful !");
 		}
 		hdd_mon_turn_off_ps_and_wow(hdd_ctx);
-		set_bit(DEVICE_IFACE_OPENED, &adapter->event_flags);
 	}
 
 	ret = hdd_set_mon_rx_cb(dev);
@@ -2742,14 +2752,17 @@ static int __hdd_mon_open(struct net_device *dev)
 	if (!ret)
 		ret = hdd_enable_monitor_mode(dev);
 
-	if (!ret) {
-		hdd_set_current_throughput_level(hdd_ctx,
-						 PLD_BUS_WIDTH_VERY_HIGH);
-		pld_request_bus_bandwidth(hdd_ctx->parent_dev,
-					  PLD_BUS_WIDTH_VERY_HIGH);
-	}
+	if (ret)
+		return ret;
 
-	return ret;
+	set_bit(DEVICE_IFACE_OPENED, &adapter->event_flags);
+	wlan_hdd_netif_queue_control(adapter,
+				     WLAN_START_ALL_NETIF_QUEUE_N_CARRIER,
+				     WLAN_CONTROL_PATH);
+	hdd_set_current_throughput_level(hdd_ctx, PLD_BUS_WIDTH_VERY_HIGH);
+	pld_request_bus_bandwidth(hdd_ctx->parent_dev, PLD_BUS_WIDTH_VERY_HIGH);
+
+	return 0;
 }
 
 /**
@@ -4202,6 +4215,12 @@ static int __hdd_stop(struct net_device *dev)
 		return ret;
 	}
 
+	if (hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE &&
+	    !uid_eq(current_euid(), GLOBAL_ROOT_UID) &&
+	    (wlan_hdd_is_session_type_monitor(adapter->device_mode) ||
+	     dev->type == ARPHRD_IEEE80211_RADIOTAP))
+		return 0;
+
 	/* Nothing to be done if the interface is not opened */
 	if (false == test_bit(DEVICE_IFACE_OPENED, &adapter->event_flags)) {
 		hdd_err("NETDEV Interface is not OPENED");
@@ -4943,6 +4962,7 @@ static const struct net_device_ops wlan_drv_ops = {
 static const struct net_device_ops wlan_mon_drv_ops = {
 	.ndo_open = hdd_mon_open,
 	.ndo_stop = hdd_stop,
+	.ndo_start_xmit = hdd_hard_start_xmit,
 	.ndo_get_stats = hdd_get_stats,
 };
 
@@ -5336,6 +5356,8 @@ bool hdd_is_vdev_in_conn_state(struct hdd_adapter *adapter)
 	case QDF_P2P_GO_MODE:
 		return (test_bit(SOFTAP_BSS_STARTED,
 				 &adapter->event_flags));
+	case QDF_MONITOR_MODE:
+		return false;
 	default:
 		hdd_err("Device mode %d invalid", adapter->device_mode);
 		return 0;
@@ -6566,8 +6588,7 @@ struct hdd_adapter *hdd_open_adapter(struct hdd_context *hdd_ctx, uint8_t sessio
 	qdf_atomic_init(&adapter->gro_disallowed);
 
 	for (i = 0; i < NET_DEV_HOLD_ID_MAX; i++)
-		qdf_atomic_init(
-			&adapter->net_dev_hold_ref_count[NET_DEV_HOLD_ID_MAX]);
+		qdf_atomic_init(&adapter->net_dev_hold_ref_count[i]);
 
 	/* Add it to the hdd's session list. */
 	status = hdd_add_adapter_back(hdd_ctx, adapter);
@@ -15758,7 +15779,20 @@ static ssize_t wlan_hdd_state_ctrl_param_write(struct file *filp,
 	int ret;
 	unsigned long rc;
 	struct hdd_context *hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
+	bool monitor_active = false;
 	bool turning_on = false;
+
+	if (hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE)
+		monitor_active = true;
+
+	if (hdd_ctx) {
+		struct hdd_adapter *mon_adapter;
+
+		mon_adapter = hdd_get_adapter(hdd_ctx, QDF_MONITOR_MODE);
+		if (mon_adapter &&
+		    test_bit(DEVICE_IFACE_OPENED, &mon_adapter->event_flags))
+			monitor_active = true;
+	}
 
 	if (copy_from_user(buf, user_buf, 3)) {
 		pr_err("Failed to read buffer\n");
@@ -15766,6 +15800,8 @@ static ssize_t wlan_hdd_state_ctrl_param_write(struct file *filp,
 	}
 
 	if (strncmp(buf, wlan_off_str, strlen(wlan_off_str)) == 0) {
+		if (monitor_active && !uid_eq(current_euid(), GLOBAL_ROOT_UID))
+			goto exit;
 		hdd_info("Wifi turning off from UI\n");
 		hdd_inform_wifi_off();
 		#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
@@ -15776,6 +15812,8 @@ static ssize_t wlan_hdd_state_ctrl_param_write(struct file *filp,
 	}
 
 	if (strncmp(buf, wlan_on_str, strlen(wlan_on_str)) == 0) {
+		if (monitor_active && !uid_eq(current_euid(), GLOBAL_ROOT_UID))
+			goto exit;
 		hdd_info("Wifi Turning On from UI\n");
 		turning_on = true;
 		#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
@@ -16351,6 +16389,18 @@ static void hdd_stop_present_mode(struct hdd_context *hdd_ctx,
 		hdd_info("Release wakelock for monitor mode!");
 		qdf_wake_lock_release(&hdd_ctx->monitor_mode_wakelock,
 				      WIFI_POWER_EVENT_WAKELOCK_MONITOR_MODE);
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+		/*
+		 * Destroy injection helper vdev before monitor teardown to
+		 * avoid firmware assert with orphan helper session.
+		 */
+		{
+			tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
+
+			if (wma)
+				wma_injection_pre_stop_cleanup(wma);
+		}
+#endif
 		/* fallthrough */
 	case QDF_GLOBAL_MISSION_MODE:
 	case QDF_GLOBAL_FTM_MODE:
@@ -18336,4 +18386,3 @@ static const struct kernel_param_ops timer_multiplier_ops = {
 };
 
 module_param_cb(timer_multiplier, &timer_multiplier_ops, NULL, 0644);
-

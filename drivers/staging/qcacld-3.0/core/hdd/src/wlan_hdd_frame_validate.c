@@ -111,7 +111,7 @@ static QDF_STATUS hdd_validate_frame_header(uint8_t *frame_data,
 		return QDF_STATUS_E_NULL_VALUE;
 	}
 
-	if (frame_len < sizeof(struct ieee80211_frame)) {
+	if (frame_len < HDD_MIN_CTRL_FRAME_SIZE) {
 		hdd_validate_err("Frame too short: %u bytes", frame_len);
 		return QDF_STATUS_E_INVAL;
 	}
@@ -639,7 +639,7 @@ QDF_STATUS hdd_sanitize_frame_content(uint8_t *frame_data, uint32_t frame_len)
 		return QDF_STATUS_E_NULL_VALUE;
 	}
 
-	if (frame_len < sizeof(struct ieee80211_frame)) {
+	if (frame_len < HDD_MIN_CTRL_FRAME_SIZE) {
 		hdd_validate_err("Frame too short for sanitization: %u", frame_len);
 		return QDF_STATUS_E_INVAL;
 	}

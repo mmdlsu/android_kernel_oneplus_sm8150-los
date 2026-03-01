@@ -11018,12 +11018,43 @@ static const struct iw_priv_args we_private_args[] = {
 #endif /* WLAN_FEATURE_MOTION_DETECTION */
 };
 
+static int hdd_wext_giwfreq(struct net_device *dev,
+			    struct iw_request_info *info,
+			    struct iw_freq *freq, char *extra)
+{
+	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
+	struct hdd_station_ctx *sta_ctx;
+	uint32_t chan_freq;
+
+	if (!adapter)
+		return -EINVAL;
+
+	chan_freq = adapter->mon_chan_freq;
+	if (!chan_freq) {
+		sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
+		if (sta_ctx)
+			chan_freq = sta_ctx->ch_info.freq;
+	}
+
+	if (!chan_freq)
+		return -EINVAL;
+
+	freq->m = chan_freq;
+	freq->e = 6;
+
+	return 0;
+}
+
+static const iw_handler we_standard[] = {
+	[IW_IOCTL_IDX(SIOCGIWFREQ)] = (iw_handler)hdd_wext_giwfreq,
+};
+
 const struct iw_handler_def we_handler_def = {
-	.num_standard = 0,
+	.num_standard = ARRAY_SIZE(we_standard),
 	.num_private = QDF_ARRAY_SIZE(we_private),
 	.num_private_args = QDF_ARRAY_SIZE(we_private_args),
 
-	.standard = NULL,
+	.standard = we_standard,
 	.private = (iw_handler *) we_private,
 	.private_args = we_private_args,
 	.get_wireless_stats = NULL,

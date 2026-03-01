@@ -2419,11 +2419,7 @@ static void hdd_send_roamed_ind(struct net_device *dev,
 {
 	struct cfg80211_roam_info info = {0};
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0))
-	info.links[0].bss = bss;
-#else
 	info.bss = bss;
-#endif
 	info.req_ie = req_ie;
 	info.req_ie_len = req_ie_len;
 	info.resp_ie = resp_ie;

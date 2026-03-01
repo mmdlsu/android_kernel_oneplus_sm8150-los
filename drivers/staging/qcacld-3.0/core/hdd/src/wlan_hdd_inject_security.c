@@ -26,6 +26,7 @@
 #include "wlan_hdd_frame_inject.h"
 #include <linux/capability.h>
 #include <linux/cred.h>
+#include <linux/interrupt.h>
 #include <linux/time.h>
 #include <qdf_mem.h>
 #include <qdf_trace.h>
@@ -247,7 +248,7 @@ static QDF_STATUS hdd_create_injection_session(struct injection_security_ctx *se
 		return status;
 	}
 
-	hdd_security_info("Created injection session %u (PID: %d, UID: %u)",
+	hdd_security_debug("Created injection session %u (PID: %d, UID: %u)",
 			  session_id, session->pid, session->uid);
 	return QDF_STATUS_SUCCESS;
 }
@@ -379,11 +380,11 @@ void hdd_log_injection_activity(struct hdd_adapter *adapter,
 	}
 
 	/* Log injection activity based on configured log level */
-	if (security_ctx->config.log_level >= 3) {
+	if (security_ctx->config.log_level >= 4) {
 		hdd_security_info("Frame injection: session=%u, len=%u, flags=0x%x, PID=%d, UID=%u",
 				  req->session_id, req->frame_len, req->tx_flags,
 				  current->pid, from_kuid(&init_user_ns, current_uid()));
-	} else if (security_ctx->config.log_level >= 2) {
+	} else if (security_ctx->config.log_level >= 3) {
 		hdd_security_debug("Frame injection: session=%u, len=%u",
 				   req->session_id, req->frame_len);
 	}
@@ -426,12 +427,17 @@ QDF_STATUS hdd_validate_injection_permissions(struct hdd_adapter *adapter,
 		return QDF_STATUS_E_PERM;
 	}
 
-	/* Check process capabilities */
-	status = hdd_check_injection_capability(NULL);
-	if (QDF_IS_STATUS_ERROR(status)) {
-		security_ctx->stats.permission_denials++;
-		hdd_security_warn("Capability check failed: %d", status);
-		return status;
+	/*
+	 * Monitor TX may be executed from softirq context where user credentials
+	 * are not meaningful. Keep capability enforcement in process context.
+	 */
+	if (!in_interrupt() && !in_softirq()) {
+		status = hdd_check_injection_capability(NULL);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			security_ctx->stats.permission_denials++;
+			hdd_security_warn("Capability check failed: %d", status);
+			return status;
+		}
 	}
 
 	/* Check monitor mode requirement */
