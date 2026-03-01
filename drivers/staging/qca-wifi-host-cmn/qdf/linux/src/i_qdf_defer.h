@@ -189,7 +189,10 @@ static inline void __qdf_destroy_workqueue(__qdf_workqueue_t *wqueue)
 static inline QDF_STATUS
 __qdf_init_bh(struct tasklet_struct *bh, qdf_defer_fn_t func, void *arg)
 {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
 	tasklet_init(bh, (__qdf_bh_fn_t) func, (unsigned long)arg);
+#pragma GCC diagnostic pop
 	return QDF_STATUS_SUCCESS;
 }
 

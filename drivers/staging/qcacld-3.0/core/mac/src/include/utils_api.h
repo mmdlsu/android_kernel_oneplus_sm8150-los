@@ -19,7 +19,12 @@
 #ifndef __UTILSAPI_H
 #define __UTILSAPI_H
 
+#include <linux/version.h>
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
+#include <linux/stdarg.h>
+#else
 #include <stdarg.h>
+#endif
 #include <sir_common.h>
 #include "ani_global.h"
 #include "sys_wrapper.h"

@@ -59,6 +59,9 @@
 #include <wlan_hdd_tsf.h>
 #include <net/tcp.h>
 #include "wma_api.h"
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+#include "wlan_hdd_frame_inject.h"
+#endif
 
 #include "wlan_hdd_nud_tracking.h"
 #include "dp_txrx.h"
@@ -895,6 +898,104 @@ void hdd_get_transmit_mac_addr(struct hdd_adapter *adapter, struct sk_buff *skb,
 	}
 }
 
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+static bool hdd_is_monitor_tx_dev(struct hdd_adapter *adapter,
+				  struct net_device *dev)
+{
+	if (!adapter || !dev)
+		return false;
+
+	if (adapter->device_mode == QDF_MONITOR_MODE)
+		return true;
+
+	if (dev->type == ARPHRD_IEEE80211_RADIOTAP)
+		return true;
+
+	if (dev->ieee80211_ptr &&
+	    dev->ieee80211_ptr->iftype == NL80211_IFTYPE_MONITOR)
+		return true;
+
+	return false;
+}
+
+static void hdd_monitor_mode_tx_inject(struct hdd_adapter *adapter,
+				       struct net_device *dev,
+				       struct sk_buff *skb)
+{
+	struct ieee80211_radiotap_header *rthdr;
+	struct inject_frame_req *req;
+	uint8_t *frame_data;
+	uint16_t rtap_len;
+	uint32_t frame_len;
+	uint64_t now;
+	QDF_STATUS status;
+	bool has_radiotap = false;
+
+	if (!adapter || !adapter->injection_ctx || !skb)
+		goto drop;
+
+	if (!adapter->injection_ctx->is_monitor_mode)
+		adapter->injection_ctx->is_monitor_mode = true;
+
+	if (skb->len < 10)
+		goto drop;
+
+	if (skb->len >= sizeof(*rthdr)) {
+		rthdr = (struct ieee80211_radiotap_header *)skb->data;
+		if (rthdr->it_version == 0) {
+			rtap_len = ieee80211_get_radiotap_len(skb->data);
+			if (rtap_len >= sizeof(*rthdr) && rtap_len < skb->len)
+				has_radiotap = true;
+		}
+	}
+
+	if (has_radiotap) {
+		frame_data = skb->data + rtap_len;
+		frame_len = skb->len - rtap_len;
+	} else {
+		frame_data = skb->data;
+		frame_len = skb->len;
+	}
+
+	if (!frame_len || frame_len > HDD_FRAME_INJECT_MAX_SIZE)
+		goto drop;
+
+	req = qdf_mem_malloc(sizeof(*req));
+	if (!req)
+		goto drop;
+
+	req->frame_data = qdf_mem_malloc(frame_len);
+	if (!req->frame_data) {
+		qdf_mem_free(req);
+		goto drop;
+	}
+
+	qdf_mem_copy(req->frame_data, frame_data, frame_len);
+	now = qdf_get_log_timestamp();
+
+	req->frame_len = frame_len;
+	req->tx_flags = 0;
+	req->retry_count = 0;
+	req->tx_rate = 0;
+	req->timestamp = now;
+	req->session_id = (uint32_t)now;
+	req->submit_time = now;
+	req->queue_time = 0;
+	req->process_time = 0;
+	req->complete_time = 0;
+
+	status = hdd_process_frame_injection(adapter, req);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err_rl("monitor tx injection failed: status=%d", status);
+		qdf_mem_free(req->frame_data);
+		qdf_mem_free(req);
+	}
+
+drop:
+	kfree_skb(skb);
+}
+#endif
+
 #ifdef HANDLE_BROADCAST_EAPOL_TX_FRAME
 /**
  * wlan_hdd_fix_broadcast_eapol() - Fix broadcast eapol
@@ -959,6 +1060,13 @@ static void __hdd_hard_start_xmit(struct sk_buff *skb,
 	struct wlan_objmgr_vdev *vdev;
 	struct hdd_context *hdd_ctx;
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
+
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	if (hdd_is_monitor_tx_dev(adapter, dev)) {
+		hdd_monitor_mode_tx_inject(adapter, dev, skb);
+		return;
+	}
+#endif
 
 #ifdef QCA_WIFI_FTM
 	if (hdd_get_conparam() == QDF_GLOBAL_FTM_MODE) {
@@ -2931,19 +3039,19 @@ int hdd_set_mon_rx_cb(struct net_device *dev)
 	cdp_vdev_register(soc, adapter->vdev_id,
 			  (ol_osif_vdev_handle)adapter,
 			  &txrx_ops);
-	/* peer is created wma_vdev_attach->wma_create_peer */
-	qdf_status = cdp_peer_register(soc, OL_TXRX_PDEV_ID, &sta_desc);
-	if (QDF_STATUS_SUCCESS != qdf_status) {
-		hdd_err("cdp_peer_register() failed to register. Status= %d [0x%08X]",
-			qdf_status, qdf_status);
-		goto exit;
-	}
-
 	qdf_status = sme_create_mon_session(hdd_ctx->mac_handle,
 					    adapter->mac_addr.bytes,
 					    adapter->vdev_id);
 	if (QDF_STATUS_SUCCESS != qdf_status) {
 		hdd_err("sme_create_mon_session() failed to register. Status= %d [0x%08X]",
+			qdf_status, qdf_status);
+		goto exit;
+	}
+
+	/* peer is created wma_vdev_attach->wma_create_peer */
+	qdf_status = cdp_peer_register(soc, OL_TXRX_PDEV_ID, &sta_desc);
+	if (QDF_STATUS_SUCCESS != qdf_status) {
+		hdd_err("cdp_peer_register() failed to register. Status= %d [0x%08X]",
 			qdf_status, qdf_status);
 	}
 
@@ -3012,7 +3120,7 @@ void hdd_send_rps_ind(struct hdd_adapter *adapter)
 			  i, rps_data.cpu_map_list[i]);
 	}
 
-	strlcpy(rps_data.ifname, adapter->dev->name,
+	strscpy(rps_data.ifname, adapter->dev->name,
 			sizeof(rps_data.ifname));
 	wlan_hdd_send_svc_nlink_msg(hdd_ctxt->radio_index,
 				WLAN_SVC_RPS_ENABLE_IND,
@@ -3058,7 +3166,7 @@ void hdd_send_rps_disable_ind(struct hdd_adapter *adapter)
 
 	qdf_mem_zero(&rps_data.cpu_map_list, sizeof(rps_data.cpu_map_list));
 
-	strlcpy(rps_data.ifname, adapter->dev->name, sizeof(rps_data.ifname));
+	strscpy(rps_data.ifname, adapter->dev->name, sizeof(rps_data.ifname));
 	wlan_hdd_send_svc_nlink_msg(hdd_ctxt->radio_index,
 				    WLAN_SVC_RPS_ENABLE_IND,
 				    &rps_data, sizeof(rps_data));

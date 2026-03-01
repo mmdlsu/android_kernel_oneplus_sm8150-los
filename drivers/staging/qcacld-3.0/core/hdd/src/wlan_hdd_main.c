@@ -31,9 +31,11 @@
 #include <cds_api.h>
 #include <cds_sched.h>
 #include <linux/cpu.h>
+#include <linux/cred.h>
 #include <linux/etherdevice.h>
 #include <linux/firmware.h>
 #include <linux/kernel.h>
+#include <linux/uidgid.h>
 #include <wlan_hdd_tx_rx.h>
 #include <wni_api.h>
 #include <wlan_hdd_cfg.h>
@@ -114,6 +116,7 @@
 #include <wlan_hdd_ipa.h>
 #include "hif.h"
 #include "wma.h"
+#include "wma_frame_inject.h"
 #include "wlan_policy_mgr_api.h"
 #include "wlan_hdd_tsf.h"
 #include "bmi.h"
@@ -139,6 +142,10 @@
 #include "wlan_reg_ucfg_api.h"
 #include "wlan_dfs_ucfg_api.h"
 #include "wlan_hdd_rx_monitor.h"
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+#include "wlan_hdd_frame_inject.h"
+#include "wlan_hdd_frame_inject_debug.h"
+#endif
 #include "sme_power_save_api.h"
 #include "enet.h"
 #include <cdp_txrx_cmn_struct.h>
@@ -264,7 +271,7 @@ static qdf_wake_lock_t wlan_wake_lock;
 #define HDD_FW_VER_SIID(tgt_fw_ver)           ((tgt_fw_ver & 0xf00000) >> 20)
 #define HDD_FW_VER_CRM_ID(tgt_fw_ver)         (tgt_fw_ver & 0x7fff)
 #define HDD_FW_VER_SUB_ID(tgt_fw_ver_ext) \
-((tgt_fw_ver_ext & 0xf0000000) >> 28)
+(((tgt_fw_ver_ext & 0x1c00) >> 6) | ((tgt_fw_ver_ext & 0xf0000000) >> 28))
 #define HDD_FW_VER_REL_ID(tgt_fw_ver_ext) \
 ((tgt_fw_ver_ext &  0xf800000) >> 23)
 
@@ -353,6 +360,83 @@ struct sock *cesium_nl_srv_sock;
 #ifdef FEATURE_WLAN_AUTO_SHUTDOWN
 static void wlan_hdd_auto_shutdown_cb(void);
 #endif
+
+#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+//Add for wifi switch monitor
+static struct wlan_hostdriver_loadresult captue_wlan_hostdriver_loadresult = {
+	.insmod_status = 0,
+	.rmmod_status = 0,
+	.ini_prase_status = 0,
+};
+
+
+void wlan_driver_send_uevent(char *enable)
+{
+	int ret_val;
+	char event[] = "SUBSYSTEM=msm_subsys";
+	char wifi_switch_event[30] = {'\0'};
+	char wifi_enable[30] = {'\0'};
+	char ini_prase[30] = {'\0'};
+	char insmod_stats[30] = {'\0'};
+	char rmmod_stats[30] = {'\0'};
+	char *envp[7];
+	qdf_device_t qdf_dev = cds_get_context(QDF_MODULE_ID_QDF_DEVICE);
+
+	snprintf(wifi_switch_event, sizeof(wifi_switch_event), "WLAN_SWITCH_EVENT=driver");
+
+	if(enable) {
+		snprintf(wifi_enable, sizeof(wifi_enable), "WIFI_TURNING=%s", enable);
+	} else {
+		snprintf(wifi_enable, sizeof(wifi_enable), "WIFI_TURNING=unkown");
+	}
+
+	if(captue_wlan_hostdriver_loadresult.ini_prase_status == INI_PRASE_SUCCESS) {
+		snprintf(ini_prase, sizeof(ini_prase), "INIPRASE=%s", "success");
+	} else if(captue_wlan_hostdriver_loadresult.ini_prase_status == INI_PRASE_FAIL) {
+		snprintf(ini_prase, sizeof(ini_prase), "INIPRASE=%s", "fail");
+	} else {
+		snprintf(ini_prase, sizeof(ini_prase), "INIPRASE=%s", "unknow");
+	}
+
+	if(captue_wlan_hostdriver_loadresult.insmod_status == INSMOD_SUCCESS) {
+		snprintf(insmod_stats, sizeof(insmod_stats), "INSMODSTATUS=%s", "success");
+	} else if(captue_wlan_hostdriver_loadresult.insmod_status == INSMOD_FAIL) {
+		snprintf(insmod_stats, sizeof(insmod_stats), "INSMODSTATUS=%s", "fail");
+	} else {
+		snprintf(insmod_stats, sizeof(insmod_stats), "INSMODSTATUS=%s", "unknow");
+	}
+
+	if(captue_wlan_hostdriver_loadresult.rmmod_status == RMMOD_SUCCESS) {
+		snprintf(rmmod_stats, sizeof(rmmod_stats), "RMMODSTATUS=%s", "success");
+	} else if(captue_wlan_hostdriver_loadresult.rmmod_status == RMMOD_FAIL) {
+		snprintf(rmmod_stats, sizeof(rmmod_stats), "RMMODSTATUS=%s", "fail");
+	} else {
+		snprintf(rmmod_stats, sizeof(rmmod_stats), "RMMODSTATUS=%s", "unknow");
+	}
+
+	envp[0] = (char *)&event;
+	wifi_switch_event[30] = 0;
+	envp[1] = (char *)&wifi_switch_event;
+	wifi_enable[30] = 0;
+	envp[2] = (char *)&wifi_enable;
+	ini_prase[30] = 0;
+	envp[3] = (char *)&ini_prase;
+	insmod_stats[30] = 0;
+	envp[4] = (char *)&insmod_stats;
+	rmmod_stats[30] = 0;
+	envp[5] = (char *)&rmmod_stats;
+	envp[6] = 0;
+
+	if(qdf_dev && qdf_dev->dev){
+		ret_val = kobject_uevent_env(&(qdf_dev->dev->kobj), KOBJ_CHANGE, envp);
+		if(!ret_val){
+			pr_info("wlan switch:kobject_uevent_env %s\n", enable);
+		}else{
+			pr_info("wlan switch:kobject_uevent_env fail,error=%d!\n", ret_val);
+		}
+	}
+}
+#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH */
 
 QDF_STATUS hdd_common_roam_callback(struct wlan_objmgr_psoc *psoc,
 				     uint8_t session_id,
@@ -2633,6 +2717,14 @@ static int __hdd_mon_open(struct net_device *dev)
 	if (ret)
 		return ret;
 
+	if (hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE &&
+	    test_bit(DEVICE_IFACE_OPENED, &adapter->event_flags)) {
+		wlan_hdd_netif_queue_control(adapter,
+					     WLAN_START_ALL_NETIF_QUEUE_N_CARRIER,
+					     WLAN_CONTROL_PATH);
+		return 0;
+	}
+
 	hdd_mon_mode_ether_setup(dev);
 
 	if (con_mode == QDF_GLOBAL_MONITOR_MODE) {
@@ -2653,7 +2745,6 @@ static int __hdd_mon_open(struct net_device *dev)
 			hdd_err("hdd_start_adapters() successful !");
 		}
 		hdd_mon_turn_off_ps_and_wow(hdd_ctx);
-		set_bit(DEVICE_IFACE_OPENED, &adapter->event_flags);
 	}
 
 	ret = hdd_set_mon_rx_cb(dev);
@@ -2661,14 +2752,17 @@ static int __hdd_mon_open(struct net_device *dev)
 	if (!ret)
 		ret = hdd_enable_monitor_mode(dev);
 
-	if (!ret) {
-		hdd_set_current_throughput_level(hdd_ctx,
-						 PLD_BUS_WIDTH_VERY_HIGH);
-		pld_request_bus_bandwidth(hdd_ctx->parent_dev,
-					  PLD_BUS_WIDTH_VERY_HIGH);
-	}
+	if (ret)
+		return ret;
 
-	return ret;
+	set_bit(DEVICE_IFACE_OPENED, &adapter->event_flags);
+	wlan_hdd_netif_queue_control(adapter,
+				     WLAN_START_ALL_NETIF_QUEUE_N_CARRIER,
+				     WLAN_CONTROL_PATH);
+	hdd_set_current_throughput_level(hdd_ctx, PLD_BUS_WIDTH_VERY_HIGH);
+	pld_request_bus_bandwidth(hdd_ctx->parent_dev, PLD_BUS_WIDTH_VERY_HIGH);
+
+	return 0;
 }
 
 /**
@@ -4121,6 +4215,12 @@ static int __hdd_stop(struct net_device *dev)
 		return ret;
 	}
 
+	if (hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE &&
+	    !uid_eq(current_euid(), GLOBAL_ROOT_UID) &&
+	    (wlan_hdd_is_session_type_monitor(adapter->device_mode) ||
+	     dev->type == ARPHRD_IEEE80211_RADIOTAP))
+		return 0;
+
 	/* Nothing to be done if the interface is not opened */
 	if (false == test_bit(DEVICE_IFACE_OPENED, &adapter->event_flags)) {
 		hdd_err("NETDEV Interface is not OPENED");
@@ -4862,6 +4962,7 @@ static const struct net_device_ops wlan_drv_ops = {
 static const struct net_device_ops wlan_mon_drv_ops = {
 	.ndo_open = hdd_mon_open,
 	.ndo_stop = hdd_stop,
+	.ndo_start_xmit = hdd_hard_start_xmit,
 	.ndo_get_stats = hdd_get_stats,
 };
 
@@ -4993,7 +5094,7 @@ hdd_alloc_station_adapter(struct hdd_context *hdd_ctx, tSirMacAddr mac_addr,
 	qdf_atomic_init(&adapter->cache_sta_count);
 
 	/* Init the net_device structure */
-	strlcpy(dev->name, name, IFNAMSIZ);
+	strscpy(dev->name, name, IFNAMSIZ);
 
 	qdf_mem_copy(dev->dev_addr, mac_addr, sizeof(tSirMacAddr));
 	qdf_mem_copy(adapter->mac_addr.bytes, mac_addr, sizeof(tSirMacAddr));
@@ -5255,6 +5356,8 @@ bool hdd_is_vdev_in_conn_state(struct hdd_adapter *adapter)
 	case QDF_P2P_GO_MODE:
 		return (test_bit(SOFTAP_BSS_STARTED,
 				 &adapter->event_flags));
+	case QDF_MONITOR_MODE:
+		return false;
 	default:
 		hdd_err("Device mode %d invalid", adapter->device_mode);
 		return 0;
@@ -5363,6 +5466,9 @@ int hdd_vdev_create(struct hdd_adapter *adapter)
 		VDEV_CMD);
 	}
 	hdd_store_nss_chains_cfg_in_vdev(adapter);
+	/* Configure vdev params */
+	ucfg_fwol_configure_vdev_params(hdd_ctx->psoc, hdd_ctx->pdev,
+					adapter->device_mode, adapter->vdev_id);
 
 	/* Configure vdev params */
 	ucfg_fwol_configure_vdev_params(hdd_ctx->psoc, hdd_ctx->pdev,
@@ -6482,8 +6588,7 @@ struct hdd_adapter *hdd_open_adapter(struct hdd_context *hdd_ctx, uint8_t sessio
 	qdf_atomic_init(&adapter->gro_disallowed);
 
 	for (i = 0; i < NET_DEV_HOLD_ID_MAX; i++)
-		qdf_atomic_init(
-			&adapter->net_dev_hold_ref_count[NET_DEV_HOLD_ID_MAX]);
+		qdf_atomic_init(&adapter->net_dev_hold_ref_count[i]);
 
 	/* Add it to the hdd's session list. */
 	status = hdd_add_adapter_back(hdd_ctx, adapter);
@@ -6513,6 +6618,14 @@ struct hdd_adapter *hdd_open_adapter(struct hdd_context *hdd_ctx, uint8_t sessio
 
 	hdd_periodic_sta_stats_init(adapter);
 
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	/* Initialize frame injection for all adapters */
+	if (QDF_STATUS_SUCCESS != hdd_init_frame_injection(adapter)) {
+		hdd_err("Failed to initialize frame injection for adapter");
+		/* Continue without frame injection support */
+	}
+#endif
+
 	return adapter;
 
 err_destroy_adapter_features_update_work:
@@ -6541,6 +6654,12 @@ static void __hdd_close_adapter(struct hdd_context *hdd_ctx,
 	qdf_event_destroy(&adapter->acs_complete_event);
 	qdf_event_destroy(&adapter->peer_cleanup_done);
 	hdd_adapter_feature_update_work_deinit(adapter);
+
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	/* Cleanup frame injection */
+	hdd_deinit_frame_injection(adapter);
+#endif
+
 	hdd_cleanup_adapter(hdd_ctx, adapter, rtnl_held);
 
 	if (hdd_ctx->current_intf_count != 0)
@@ -8864,7 +8983,9 @@ void hdd_wlan_exit(struct hdd_context *hdd_ctx)
 	hdd_wlan_stop_modules(hdd_ctx, false);
 
 	hdd_driver_memdump_deinit();
-
+	#ifdef OPLUS_FEATURE_WIFI_DUALSTA_AP_BLACKLIST
+        hdd_driver_oplus_deinit();
+        #endif /*OPLUS_FEATURE_WIFI_DUALSTA_AP_BLACKLIST*/
 	qdf_nbuf_deinit_replenish_timer();
 
 	if (QDF_GLOBAL_MONITOR_MODE ==  hdd_get_conparam()) {
@@ -11853,9 +11974,19 @@ struct hdd_context *hdd_context_create(struct device *dev)
 	if (QDF_IS_STATUS_ERROR(status)) {
 		hdd_err("Failed to parse cfg %s; status:%d\n",
 			WLAN_INI_FILE, status);
+		#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+		//Add for wifi switch monitor
+		captue_wlan_hostdriver_loadresult.ini_prase_status = INI_PRASE_FAIL;
+		#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH */
 		ret = qdf_status_to_os_return(status);
 		goto err_free_config;
 	}
+
+	#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+	//Add for wifi switch monitor
+	captue_wlan_hostdriver_loadresult.ini_prase_status = INI_PRASE_SUCCESS;
+	#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH */
+
 
 	ret = hdd_objmgr_create_and_store_psoc(hdd_ctx, DEFAULT_PSOC_ID);
 	if (ret) {
@@ -14349,7 +14480,9 @@ int hdd_wlan_startup(struct hdd_context *hdd_ctx)
 
 	osif_request_manager_init();
 	hdd_driver_memdump_init();
-
+        #ifdef OPLUS_FEATURE_WIFI_DUALSTA_AP_BLACKLIST
+        hdd_driver_oplus_init();
+        #endif /*OPLUS_FEATURE_WIFI_DUALSTA_AP_BLACKLIST*/
 	hdd_dp_trace_init(hdd_ctx->config);
 
 	errno = hdd_wlan_start_modules(hdd_ctx, false);
@@ -14416,6 +14549,9 @@ stop_modules:
 	hdd_wlan_stop_modules(hdd_ctx, false);
 
 memdump_deinit:
+        #ifdef OPLUS_FEATURE_WIFI_DUALSTA_AP_BLACKLIST
+        hdd_driver_oplus_deinit();
+	#endif /*OPLUS_FEATURE_WIFI_DUALSTA_AP_BLACKLIST*/
 	hdd_driver_memdump_deinit();
 	osif_request_manager_deinit();
 	qdf_nbuf_deinit_replenish_timer();
@@ -15480,6 +15616,15 @@ int hdd_init(void)
 	hdd_register_debug_callback();
 	wlan_roam_debug_init();
 
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	/* Initialize frame injection debug interfaces */
+	status = hdd_injection_init_debug_interfaces();
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_warn("Failed to initialize frame injection debug interfaces: %d", status);
+		/* Continue without debug interfaces - not critical */
+	}
+#endif
+
 	return 0;
 }
 
@@ -15493,6 +15638,11 @@ int hdd_init(void)
 void hdd_deinit(void)
 {
 	wlan_roam_debug_deinit();
+
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	/* Cleanup frame injection debug interfaces */
+	hdd_injection_deinit_debug_interfaces();
+#endif
 
 #ifdef WLAN_LOGGING_SOCK_SVC_ENABLE
 	wlan_logging_sock_deinit_svc();
@@ -15629,7 +15779,20 @@ static ssize_t wlan_hdd_state_ctrl_param_write(struct file *filp,
 	int ret;
 	unsigned long rc;
 	struct hdd_context *hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
+	bool monitor_active = false;
 	bool turning_on = false;
+
+	if (hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE)
+		monitor_active = true;
+
+	if (hdd_ctx) {
+		struct hdd_adapter *mon_adapter;
+
+		mon_adapter = hdd_get_adapter(hdd_ctx, QDF_MONITOR_MODE);
+		if (mon_adapter &&
+		    test_bit(DEVICE_IFACE_OPENED, &mon_adapter->event_flags))
+			monitor_active = true;
+	}
 
 	if (copy_from_user(buf, user_buf, 3)) {
 		pr_err("Failed to read buffer\n");
@@ -15637,14 +15800,26 @@ static ssize_t wlan_hdd_state_ctrl_param_write(struct file *filp,
 	}
 
 	if (strncmp(buf, wlan_off_str, strlen(wlan_off_str)) == 0) {
+		if (monitor_active && !uid_eq(current_euid(), GLOBAL_ROOT_UID))
+			goto exit;
 		hdd_info("Wifi turning off from UI\n");
 		hdd_inform_wifi_off();
+		#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+		//Add for wifi switch monitor
+		wlan_driver_send_uevent("TURN_OFF");
+		#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH */
 		goto exit;
 	}
 
 	if (strncmp(buf, wlan_on_str, strlen(wlan_on_str)) == 0) {
+		if (monitor_active && !uid_eq(current_euid(), GLOBAL_ROOT_UID))
+			goto exit;
 		hdd_info("Wifi Turning On from UI\n");
 		turning_on = true;
+		#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+		//Add for wifi switch monitor
+		wlan_driver_send_uevent("TURN_ON");
+		#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH */
 	}
 
 	if (strncmp(buf, wlan_on_str, strlen(wlan_on_str)) != 0) {
@@ -16214,6 +16389,18 @@ static void hdd_stop_present_mode(struct hdd_context *hdd_ctx,
 		hdd_info("Release wakelock for monitor mode!");
 		qdf_wake_lock_release(&hdd_ctx->monitor_mode_wakelock,
 				      WIFI_POWER_EVENT_WAKELOCK_MONITOR_MODE);
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+		/*
+		 * Destroy injection helper vdev before monitor teardown to
+		 * avoid firmware assert with orphan helper session.
+		 */
+		{
+			tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
+
+			if (wma)
+				wma_injection_pre_stop_cleanup(wma);
+		}
+#endif
 		/* fallthrough */
 	case QDF_GLOBAL_MISSION_MODE:
 	case QDF_GLOBAL_FTM_MODE:
@@ -16538,7 +16725,10 @@ static int hdd_driver_load(void)
 
 	hdd_loaded = true;
 	hdd_debug("%s: driver loaded", WLAN_MODULE_NAME);
-
+	#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+	//Add for wifi switch monitor
+ 	captue_wlan_hostdriver_loadresult.insmod_status = INSMOD_SUCCESS;
+	#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH */
 	return 0;
 
 pld_deinit:
@@ -16569,6 +16759,10 @@ sync_deinit:
 	hdd_qdf_deinit();
 
 exit:
+	#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+	//Add for wifi switch monitor
+	captue_wlan_hostdriver_loadresult.insmod_status = INSMOD_FAIL;
+	#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH */
 	return errno;
 }
 
@@ -16600,6 +16794,10 @@ static void hdd_driver_unload(void)
 	QDF_BUG(QDF_IS_STATUS_SUCCESS(status));
 	if (QDF_IS_STATUS_ERROR(status)) {
 		hdd_err("Unable to unload wlan; status:%u", status);
+		#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+		//Add for wifi switch monitor
+		captue_wlan_hostdriver_loadresult.rmmod_status = RMMOD_SUCCESS;
+		#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH */
 		return;
 	}
 
@@ -16638,6 +16836,10 @@ static void hdd_driver_unload(void)
 	QDF_BUG(QDF_IS_STATUS_SUCCESS(status));
 	if (QDF_IS_STATUS_ERROR(status)) {
 		hdd_err("Unable to unload wlan; status:%u", status);
+		#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+		//Add for wifi switch monitor
+		captue_wlan_hostdriver_loadresult.rmmod_status = RMMOD_SUCCESS;
+		#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH */
 		return;
 	}
 
@@ -16658,6 +16860,10 @@ static void hdd_driver_unload(void)
 	osif_sync_deinit();
 
 	hdd_qdf_deinit();
+	#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+	//Add for wifi switch monitor
+	captue_wlan_hostdriver_loadresult.rmmod_status = RMMOD_FAIL;
+	#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH */
 }
 
 /**
@@ -18180,4 +18386,3 @@ static const struct kernel_param_ops timer_multiplier_ops = {
 };
 
 module_param_cb(timer_multiplier, &timer_multiplier_ops, NULL, 0644);
-

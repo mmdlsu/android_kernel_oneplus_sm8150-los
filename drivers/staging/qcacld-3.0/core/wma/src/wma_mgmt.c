@@ -71,6 +71,7 @@
 #include "wma_he.h"
 #include <qdf_crypto.h>
 #include "wma_twt.h"
+#include "wma_frame_inject.h"
 #include "wlan_p2p_cfg_api.h"
 #include "cfg_ucfg_api.h"
 #include "cfg_mlme_sta.h"
@@ -2546,6 +2547,35 @@ static int wma_process_mgmt_tx_completion(tp_wma_handle wma_handle,
 	wma_debug("status: %s wmi_desc_id: %d",
 		  wma_get_status_str(status), desc_id);
 
+	/*
+	 * Monitor-mode injection uses dedicated descriptor ids that are not
+	 * backed by MGMT_TXRX pool entries.
+	 */
+	if (desc_id == 0 || WMA_IS_INJECTION_DESC_ID(desc_id)) {
+		uint32_t norm_status = status;
+
+		/*
+		 * Some firmware builds return an extended status word where
+		 * standard WMI_MGMT_TX_COMP_STATUS_TYPE occupies low 2 bits.
+		 * Normalize to the standard range before host handling.
+		 */
+		if (status >= WMI_MGMT_TX_COMP_TYPE_MAX) {
+			static bool inj_ext_status_logged;
+
+			norm_status = status & 0x3;
+			if (!inj_ext_status_logged) {
+				wma_info("Injection: FW extended status 0x%x normalized to %u (%s)",
+					 status, norm_status,
+					 wma_get_status_str(norm_status));
+				inj_ext_status_logged = true;
+			}
+		}
+
+		wma_handle_injection_fw_response(wma_handle, desc_id,
+						 norm_status);
+		return 0;
+	}
+
 	pdev = wma_handle->pdev;
 	if (!pdev) {
 		WMA_LOGE("%s: psoc ptr is NULL", __func__);
@@ -2553,10 +2583,13 @@ static int wma_process_mgmt_tx_completion(tp_wma_handle wma_handle,
 	}
 
 	buf = mgmt_txrx_get_nbuf(pdev, desc_id);
+	if (!buf) {
+		WMA_LOGE("%s: no mgmt desc for id %u status %u", __func__,
+			 desc_id, status);
+		return -EINVAL;
+	}
 
-
-	if (buf)
-		wma_mgmt_unmap_buf(wma_handle, buf);
+	wma_mgmt_unmap_buf(wma_handle, buf);
 
 #if !defined(REMOVE_PKT_LOG)
 	vdev_id = mgmt_txrx_get_vdev_id(pdev, desc_id);

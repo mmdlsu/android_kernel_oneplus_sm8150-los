@@ -287,9 +287,13 @@ static inline uint64_t __qdf_get_log_timestamp(void)
  */
 static inline uint64_t __qdf_get_log_timestamp(void)
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0))
+	struct timespec64 ts;
+	ktime_get_ts64(&ts);
+#else
 	struct timespec ts;
-
 	ktime_get_ts(&ts);
+#endif
 
 	return ((uint64_t) ts.tv_sec * 1000000) + (ts.tv_nsec / 1000);
 }

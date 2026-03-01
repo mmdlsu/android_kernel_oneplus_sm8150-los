@@ -26,6 +26,9 @@ WLAN_FW_API ?= $(WLAN_ROOT)/../fw-api/
 WLAN_PROFILE ?= default
 CONFIG_QCA_CLD_WLAN_PROFILE ?= $(WLAN_PROFILE)
 
+# Force user build
+TARGET_BUILD_VARIANT := user
+
 ifeq ($(KERNEL_BUILD), n)
 ifneq ($(ANDROID_BUILD_TOP),)
       KERNEL_PATH_4.4 :=  $(shell python -c "import os.path; print(os.path.exists('$(ANDROID_BUILD_TOP)/kernel/msm-4.4'))")
@@ -94,7 +97,7 @@ HDD_OBJS := 	$(HDD_SRC_DIR)/wlan_hdd_assoc.o \
 		$(HDD_SRC_DIR)/wlan_hdd_trace.o \
 		$(HDD_SRC_DIR)/wlan_hdd_tx_rx.o \
 		$(HDD_SRC_DIR)/wlan_hdd_wmm.o \
-		$(HDD_SRC_DIR)/wlan_hdd_wowl.o
+		$(HDD_SRC_DIR)/wlan_hdd_wowl.o \
 
 ifeq ($(CONFIG_WLAN_FEATURE_PERIODIC_STA_STATS), y)
 HDD_OBJS += $(HDD_SRC_DIR)/wlan_hdd_periodic_sta_stats.o
@@ -206,6 +209,16 @@ endif
 
 ifeq ($(CONFIG_LITHIUM), y)
 HDD_OBJS += $(HDD_SRC_DIR)/wlan_hdd_rx_monitor.o
+endif
+
+ifeq ($(CONFIG_FEATURE_FRAME_INJECTION_SUPPORT), y)
+HDD_OBJS += $(HDD_SRC_DIR)/wlan_hdd_frame_inject.o
+HDD_OBJS += $(HDD_SRC_DIR)/wlan_hdd_frame_validate.o
+HDD_OBJS += $(HDD_SRC_DIR)/wlan_hdd_inject_security.o
+HDD_OBJS += $(HDD_SRC_DIR)/wlan_hdd_frame_inject_debug.o
+ifeq ($(CONFIG_WLAN_UNIT_TEST), y)
+HDD_OBJS += $(HDD_SRC_DIR)/wlan_hdd_frame_validate_test.o
+endif
 endif
 
 ifeq ($(CONFIG_LITHIUM), y)
@@ -340,6 +353,12 @@ endif
 cppflags-$(CONFIG_DSC_DEBUG) += -DWLAN_DSC_DEBUG
 cppflags-$(CONFIG_DSC_TEST) += -DWLAN_DSC_TEST
 
+##ifdef OPLUS_BUG_STABILITY
+#7250R upgrade project does not adjust RSSI.
+ifneq ($(BOARD_PLATFORM),lito)
+  cppflags-y += -DOPLUS_ADJUST_RSSI
+endif
+##endif OPLUS_BUG_STABILITY
 ########### HOST DIAG LOG ###########
 HOST_DIAG_LOG_DIR :=	$(WLAN_COMMON_ROOT)/utils/host_diag_log
 
@@ -1965,6 +1984,10 @@ WMA_OBJS :=	$(WMA_SRC_DIR)/wma_main.o \
 		$(WMA_SRC_DIR)/wlan_qct_wma_legacy.o\
 		$(WMA_NDP_OBJS)
 
+ifeq ($(CONFIG_FEATURE_FRAME_INJECTION_SUPPORT), y)
+WMA_OBJS += $(WMA_SRC_DIR)/wma_frame_inject.o
+endif
+
 #######DIRECT_BUFFER_RX#########
 ifeq ($(CONFIG_DIRECT_BUF_RX_ENABLE), y)
 DBR_DIR = $(WLAN_COMMON_ROOT)/target_if/direct_buf_rx
@@ -2385,6 +2408,12 @@ ifeq ($(CONFIG_FEATURE_MONITOR_MODE_SUPPORT), y)
 cppflags-y += -DFEATURE_MONITOR_MODE_SUPPORT
 else
 cppflags-y += -DDISABLE_MON_CONFIG
+endif
+
+ifeq ($(CONFIG_FEATURE_FRAME_INJECTION_SUPPORT), y)
+cppflags-y += -DFEATURE_FRAME_INJECTION_SUPPORT
+# Enable monitor mode support for frame injection
+CONFIG_FEATURE_MONITOR_MODE_SUPPORT := y
 endif
 
 #Enable NL80211 test mode
@@ -3324,6 +3353,16 @@ cppflags-$(CONFIG_DUMP_REO_QUEUE_INFO_IN_DDR) += -DDUMP_REO_QUEUE_INFO_IN_DDR
 
 KBUILD_CPPFLAGS += $(cppflags-y)
 
+# Currently, for versions of gcc which support it, the kernel Makefile
+# is disabling the maybe-uninitialized warning.  Re-enable it for the
+# WLAN driver.  Note that we must use ccflags-y here so that it
+# will override the kernel settings.
+ifeq ($(call cc-option-yn, -Wmaybe-uninitialized), y)
+ccflags-y += -Wmaybe-uninitialized
+ifneq (y,$(CONFIG_ARCH_MSM))
+ccflags-y += -Wframe-larger-than=4096
+endif
+endif
 ccflags-y += -Wmissing-prototypes
 
 ifeq ($(call cc-option-yn, -Wheader-guard), y)

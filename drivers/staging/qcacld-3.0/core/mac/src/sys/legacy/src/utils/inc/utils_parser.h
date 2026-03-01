@@ -30,7 +30,12 @@
 #ifndef __UTILS_PARSE_H__
 #define __UTILS_PARSE_H__
 
+#include <linux/version.h>
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
+#include <linux/stdarg.h>
+#else
 #include <stdarg.h>
+#endif
 #include "sir_api.h"
 #include "dot11f.h"
 #include "utils_api.h"

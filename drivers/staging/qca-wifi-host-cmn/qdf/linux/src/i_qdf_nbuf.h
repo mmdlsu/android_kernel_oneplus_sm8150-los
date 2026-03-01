@@ -28,6 +28,12 @@
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/dma-mapping.h>
+#include <linux/kernel.h>
+
+/* Compatibility for newer kernels where FIELD_SIZEOF was removed */
+#ifndef FIELD_SIZEOF
+#define FIELD_SIZEOF(t, f) (sizeof(((t*)0)->f))
+#endif
 #include <linux/version.h>
 #include <asm/cacheflush.h>
 #include <qdf_types.h>

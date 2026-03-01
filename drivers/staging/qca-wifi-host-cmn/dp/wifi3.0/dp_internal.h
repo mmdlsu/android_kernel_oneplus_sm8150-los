@@ -19,6 +19,7 @@
 #ifndef _DP_INTERNAL_H_
 #define _DP_INTERNAL_H_
 
+#include <linux/version.h>
 #include "dp_types.h"
 
 #define RX_BUFFER_SIZE_PKTLOG_LITE 1024
@@ -129,7 +130,11 @@ enum timer_yield_status {
 };
 
 #if DP_PRINT_ENABLE
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
+#include <linux/stdarg.h> /* va_list */
+#else
 #include <stdarg.h>       /* va_list */
+#endif
 #include <qdf_types.h> /* qdf_vprint */
 #include <cdp_txrx_handle.h>
 

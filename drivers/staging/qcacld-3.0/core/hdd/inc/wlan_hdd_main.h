@@ -97,6 +97,9 @@
 #include "wlan_hdd_oemdata.h"
 #endif
 #include "wlan_hdd_he.h"
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+#include "wlan_hdd_frame_inject.h"
+#endif
 
 #include <net/neighbour.h>
 #include <net/netevent.h>
@@ -1484,6 +1487,10 @@ struct hdd_adapter {
 	uint8_t gro_flushed[DP_MAX_RX_THREADS];
 	bool delete_in_progress;
 	qdf_atomic_t net_dev_hold_ref_count[NET_DEV_HOLD_ID_MAX];
+
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	struct hdd_injection_ctx *injection_ctx;
+#endif
 };
 
 #define WLAN_HDD_GET_STATION_CTX_PTR(adapter) (&(adapter)->session.station)
@@ -2207,6 +2214,27 @@ struct hdd_channel_info {
 	u_int8_t vht_center_freq_seg0;
 	u_int8_t vht_center_freq_seg1;
 };
+
+
+#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+//Add for wifi switch monitor
+enum wlan_hostdriver_loadstatus {
+	INSMOD_SUCCESS = 1,
+	INSMOD_FAIL,
+	RMMOD_SUCCESS,
+	RMMOD_FAIL,
+	INI_PRASE_SUCCESS,
+	INI_PRASE_FAIL,
+};
+
+struct wlan_hostdriver_loadresult {
+	u_int8_t insmod_status;
+	u_int8_t rmmod_status;
+	u_int8_t ini_prase_status;
+};
+
+void wlan_driver_send_uevent(char *enable);
+#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH */
 
 /*
  * Function declarations and documentation
@@ -3739,7 +3767,10 @@ void hdd_psoc_idle_timer_start(struct hdd_context *hdd_ctx);
  * Return: None
  */
 void hdd_psoc_idle_timer_stop(struct hdd_context *hdd_ctx);
-
+#ifdef OPLUS_FEATURE_WIFI_DUALSTA_AP_BLACKLIST
+int hdd_driver_oplus_init(void);
+void hdd_driver_oplus_deinit(void);
+#endif /*OPLUS_FEATURE_WIFI_DUALSTA_AP_BLACKLIST*/
 /**
  * hdd_trigger_psoc_idle_restart() - trigger restart of a previously shutdown
  *                                   idle psoc, if needed
