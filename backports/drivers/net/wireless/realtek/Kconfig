@@ -16,6 +16,7 @@ source "backports/drivers/net/wireless/realtek/rtl818x/Kconfig"
 source "backports/drivers/net/wireless/realtek/rtlwifi/Kconfig"
 source "backports/drivers/net/wireless/realtek/rtl8xxxu/Kconfig"
 source "backports/drivers/net/wireless/realtek/rtl8812au/Kconfig"
+source "backports/drivers/net/wireless/realtek/rtl8188eus/Kconfig"
 source "backports/drivers/net/wireless/realtek/rtw88/Kconfig"
 source "backports/drivers/net/wireless/realtek/rtw89/Kconfig"
 
