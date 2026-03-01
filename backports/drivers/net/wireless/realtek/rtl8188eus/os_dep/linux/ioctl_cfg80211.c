@@ -54,6 +54,11 @@
 
 #define RTW_CH_MAX_2G_CHANNEL               14      /* Max channel in 2G band */
 
+/* backports cfg80211 with MLO APIs */
+#ifdef CFG80211_MAX_NUM_AKM_SUITES
+#define RTW_CFG80211_MLO_API
+#endif
+
 #ifdef CONFIG_WAPI_SUPPORT
 
 #ifndef WLAN_CIPHER_SUITE_SMS4
@@ -417,11 +422,7 @@ u8 rtw_cfg80211_ch_switch_notify(_adapter *adapter, u8 ch, u8 bw, u8 offset, u8 
 	if (ret != _SUCCESS)
 		goto exit;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0))
-        cfg80211_ch_switch_notify(adapter->pnetdev, &chdef, 0);
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
-        cfg80211_ch_switch_notify(adapter->pnetdev, &chdef, 0, 0);
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0))
+#ifdef RTW_CFG80211_MLO_API
 	cfg80211_ch_switch_notify(adapter->pnetdev, &chdef, 0);
 #else
 	cfg80211_ch_switch_notify(adapter->pnetdev, &chdef);
@@ -1099,7 +1100,7 @@ check_bss:
 		u32 freq;
 		u16 channel = cur_network->network.Configuration.DSConfig;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0) || defined(RHEL79))
-		struct cfg80211_roam_info roam_info;
+		struct cfg80211_roam_info roam_info = {};
 #endif
 
 		freq = rtw_ch2freq(channel);
@@ -1107,12 +1108,13 @@ check_bss:
 		#endif
 
 		#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0) || defined(RHEL79))
-		#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0))
-                roam_info.links[0].channel = notify_channel;
+#ifdef RTW_CFG80211_MLO_API
+		roam_info.links[0].channel = notify_channel;
 		roam_info.links[0].bssid = cur_network->network.MacAddress;
-		#else
+#else
+		roam_info.channel = notify_channel;
 		roam_info.bssid = cur_network->network.MacAddress;
-		#endif
+#endif
 		roam_info.req_ie = pmlmepriv->assoc_req + sizeof(struct rtw_ieee80211_hdr_3addr) + 2;
 		roam_info.req_ie_len = pmlmepriv->assoc_req_len - sizeof(struct rtw_ieee80211_hdr_3addr) - 2;
 		roam_info.resp_ie = pmlmepriv->assoc_rsp + sizeof(struct rtw_ieee80211_hdr_3addr) + 6;
@@ -1669,8 +1671,8 @@ exit:
 }
 
 static int cfg80211_rtw_add_key(struct wiphy *wiphy, struct net_device *ndev
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
-        , int link_id
+#ifdef RTW_CFG80211_MLO_API
+	, int link_id
 #endif
 	, u8 key_index
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37)) || defined(COMPAT_KERNEL_RELEASE)
@@ -1688,6 +1690,9 @@ static int cfg80211_rtw_add_key(struct wiphy *wiphy, struct net_device *ndev
 #ifdef CONFIG_TDLS
 	struct sta_info *ptdls_sta;
 #endif /* CONFIG_TDLS */
+#ifdef RTW_CFG80211_MLO_API
+	(void)link_id;
+#endif
 
 	if (mac_addr)
 		RTW_INFO(FUNC_NDEV_FMT" adding key for %pM\n", FUNC_NDEV_ARG(ndev), mac_addr);
@@ -1816,8 +1821,8 @@ addkey_end:
 }
 
 static int cfg80211_rtw_get_key(struct wiphy *wiphy, struct net_device *ndev
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
-        , int link_id
+#ifdef RTW_CFG80211_MLO_API
+	, int link_id
 #endif
 	, u8 keyid
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37)) || defined(COMPAT_KERNEL_RELEASE)
@@ -1851,6 +1856,9 @@ static int cfg80211_rtw_get_key(struct wiphy *wiphy, struct net_device *ndev
 
 	struct key_params params;
 	int ret = -ENOENT;
+#ifdef RTW_CFG80211_MLO_API
+	(void)link_id;
+#endif
 
 	if (keyid >= WEP_KEYS
 		#ifdef CONFIG_IEEE80211W
@@ -1984,8 +1992,8 @@ exit:
 }
 
 static int cfg80211_rtw_del_key(struct wiphy *wiphy, struct net_device *ndev,
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
-        int link_id,
+#ifdef RTW_CFG80211_MLO_API
+				int link_id,
 #endif
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37)) || defined(COMPAT_KERNEL_RELEASE)
 				u8 key_index, bool pairwise, const u8 *mac_addr)
@@ -1995,6 +2003,9 @@ static int cfg80211_rtw_del_key(struct wiphy *wiphy, struct net_device *ndev,
 {
 	_adapter *padapter = (_adapter *)rtw_netdev_priv(ndev);
 	struct security_priv *psecuritypriv = &padapter->securitypriv;
+#ifdef RTW_CFG80211_MLO_API
+	(void)link_id;
+#endif
 
 	RTW_INFO(FUNC_NDEV_FMT" key_index=%d, addr=%pM\n", FUNC_NDEV_ARG(ndev), key_index, mac_addr);
 
@@ -2007,11 +2018,11 @@ static int cfg80211_rtw_del_key(struct wiphy *wiphy, struct net_device *ndev,
 }
 
 static int cfg80211_rtw_set_default_key(struct wiphy *wiphy,
-	struct net_device *ndev,
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
-        int link_id,
+#ifdef RTW_CFG80211_MLO_API
+	struct net_device *ndev, int link_id, u8 key_index
+#else
+	struct net_device *ndev, u8 key_index
 #endif
-        u8 key_index
 	#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 38)) || defined(COMPAT_KERNEL_RELEASE)
 	, bool unicast, bool multicast
 	#endif
@@ -2019,6 +2030,9 @@ static int cfg80211_rtw_set_default_key(struct wiphy *wiphy,
 {
 	_adapter *padapter = (_adapter *)rtw_netdev_priv(ndev);
 	struct security_priv *psecuritypriv = &padapter->securitypriv;
+#ifdef RTW_CFG80211_MLO_API
+	(void)link_id;
+#endif
 
 #define SET_DEF_KEY_PARAM_FMT " key_index=%d"
 #define SET_DEF_KEY_PARAM_ARG , key_index
@@ -2059,14 +2073,17 @@ static int cfg80211_rtw_set_default_key(struct wiphy *wiphy,
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 30))
 int cfg80211_rtw_set_default_mgmt_key(struct wiphy *wiphy,
-	struct net_device *ndev,
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
-        int link_id,
+#ifdef RTW_CFG80211_MLO_API
+	struct net_device *ndev, int link_id, u8 key_index)
+#else
+	struct net_device *ndev, u8 key_index)
 #endif
-        u8 key_index)
 {
 #define SET_DEF_KEY_PARAM_FMT " key_index=%d"
 #define SET_DEF_KEY_PARAM_ARG , key_index
+#ifdef RTW_CFG80211_MLO_API
+	(void)link_id;
+#endif
 
 	RTW_INFO(FUNC_NDEV_FMT
 		SET_DEF_KEY_PARAM_FMT
@@ -4917,13 +4934,16 @@ static int cfg80211_rtw_change_beacon(struct wiphy *wiphy, struct net_device *nd
 	return ret;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0))
+#ifdef RTW_CFG80211_MLO_API
 static int cfg80211_rtw_stop_ap(struct wiphy *wiphy, struct net_device *ndev, unsigned int link_id)
 #else
 static int cfg80211_rtw_stop_ap(struct wiphy *wiphy, struct net_device *ndev)
 #endif
 {
 	_adapter *adapter = (_adapter *)rtw_netdev_priv(ndev);
+#ifdef RTW_CFG80211_MLO_API
+	(void)link_id;
+#endif
 
 	RTW_INFO(FUNC_NDEV_FMT"\n", FUNC_NDEV_ARG(ndev));
 
@@ -7139,11 +7159,6 @@ exit:
 	return ret;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0))
-static void cfg80211_rtw_update_mgmt_frame_register(struct wiphy *wiphy,
-                                             struct wireless_dev *wdev,
-                                             struct mgmt_frame_regs *upd)
-#else
 static void cfg80211_rtw_mgmt_frame_register(struct wiphy *wiphy,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0))
 	struct wireless_dev *wdev,
@@ -7151,7 +7166,6 @@ static void cfg80211_rtw_mgmt_frame_register(struct wiphy *wiphy,
 	struct net_device *ndev,
 #endif
 	u16 frame_type, bool reg)
-#endif
 {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0))
 	struct net_device *ndev = wdev_to_ndev(wdev);
@@ -7170,9 +7184,39 @@ static void cfg80211_rtw_mgmt_frame_register(struct wiphy *wiphy,
 		frame_type, reg);
 #endif
 
+	switch (frame_type) {
+	case IEEE80211_STYPE_AUTH: /* 0x00B0 */
+		if (reg > 0) {
+			SET_CFG80211_REPORT_MGMT(pwdev_priv, IEEE80211_STYPE_AUTH, reg);
+		} else {
+			pwdev_priv->report_mgmt &= ~BIT(IEEE80211_STYPE_AUTH >> 4);
+		}
+		break;
+	default:
+		break;
+	}
+
 exit:
 	return;
 }
+
+#ifdef RTW_CFG80211_MLO_API
+static void cfg80211_rtw_update_mgmt_frame_register(struct wiphy *wiphy,
+	struct wireless_dev *wdev, struct mgmt_frame_regs *upd)
+{
+	bool reg;
+
+	if (!upd)
+		return;
+
+	reg = !!(upd->interface_stypes & BIT(IEEE80211_STYPE_AUTH >> 4));
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0))
+	cfg80211_rtw_mgmt_frame_register(wiphy, wdev, IEEE80211_STYPE_AUTH, reg);
+#else
+	cfg80211_rtw_mgmt_frame_register(wiphy, wdev_to_ndev(wdev), IEEE80211_STYPE_AUTH, reg);
+#endif
+}
+#endif
 
 #if defined(CONFIG_TDLS) && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0))
 static int cfg80211_rtw_tdls_mgmt(struct wiphy *wiphy,
@@ -9475,7 +9519,7 @@ static struct cfg80211_ops rtw_cfg80211_ops = {
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37)) || defined(COMPAT_KERNEL_RELEASE)
 	.mgmt_tx = cfg80211_rtw_mgmt_tx,
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0))
+#ifdef RTW_CFG80211_MLO_API
 	.update_mgmt_frame_registrations = cfg80211_rtw_update_mgmt_frame_register,
 #else
 	.mgmt_frame_register = cfg80211_rtw_mgmt_frame_register,
@@ -9679,11 +9723,11 @@ void rtw_wdev_unregister(struct wireless_dev *wdev)
 	rtw_cfg80211_indicate_scan_done(adapter, _TRUE);
 
 	#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 11, 0)) || defined(COMPAT_KERNEL_RELEASE)
-	#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0))
-	if (wdev->connected) {
-	#else
+#ifdef RTW_CFG80211_MLO_API
+	if (wdev->links[0].client.current_bss) {
+#else
 	if (wdev->current_bss) {
-	#endif
+#endif
 		RTW_INFO(FUNC_ADPT_FMT" clear current_bss by cfg80211_disconnected\n", FUNC_ADPT_ARG(adapter));
 		rtw_cfg80211_indicate_disconnect(adapter, 0, 1);
 	}
